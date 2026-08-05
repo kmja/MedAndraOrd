@@ -31,18 +31,25 @@ export class AiUnavailableError extends Error {
  *   { type: 'wrong',    guess }
  *   { type: 'ai_failure', guess }
  */
-export async function runGuesserLoop({ clue, target, targetLetterCount, ai }) {
+export async function runGuesserLoop({ clue, target, targetLetterCount, wordClass, ai }) {
   const feedback = [];
   let lastGuess = null;
+  let blanks = 0;
 
   for (let round = 0; round < MAX_GUESS_ROUNDS; round++) {
-    const result = await ai.guardedGuesser({ clue, letterCount: targetLetterCount, feedback });
+    const result = await ai.guardedGuesser({ clue, letterCount: targetLetterCount, wordClass, feedback });
 
     if (result == null) {
       // Unusable answer. Fail open on the rule check, but the guess itself
       // cannot be faked — with nothing to show, the round is unplayable.
       if (lastGuess == null) throw new AiUnavailableError();
-      break;
+      // Otherwise this is the same situation as a wrong-length guess: the
+      // player wrote a legal clue and the model misbehaved, so try again
+      // rather than writing the clue off after a single bad reply. Bounded
+      // separately, because null also covers "the API call failed" — and a
+      // dead API should not spend the whole budget while a player waits.
+      if (++blanks >= 2) break;
+      continue;
     }
 
     if (result.legal === false) {
@@ -93,7 +100,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, ai }) {
  *   { type: 'wrong',    guess }
  *   { type: 'ai_failure', guess }   // struck through in UI, counts as miss
  */
-export async function judgeClue({ clue, target, forbidden, maxLength, ai = defaultAi }) {
+export async function judgeClue({ clue, target, forbidden, maxLength, wordClass, ai = defaultAi }) {
   // 1. Deterministic checks — free, before any API call. The length limit is
   // per word (see clueLimitFor), so it has to travel with the call.
   const codeVerdict = checkClueCode(clue, target, forbidden, maxLength);
@@ -106,6 +113,7 @@ export async function judgeClue({ clue, target, forbidden, maxLength, ai = defau
     clue,
     target,
     targetLetterCount: letterCount(target),
+    wordClass,
     ai,
   });
 

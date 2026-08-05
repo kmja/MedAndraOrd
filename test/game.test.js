@@ -131,6 +131,47 @@ test('judgeClue enforces the per-word limit it is given', async () => {
   assert.equal(called, false, 'a too-long clue must never reach the model');
 });
 
+test('a blank reply is retried, not written off', async () => {
+  // A legal clue plus a misbehaving model is not the player's fault. One
+  // unusable reply used to end the round immediately, which came back so fast
+  // it looked like nothing had been retried at all.
+  let calls = 0;
+  const recovers = {
+    guardedGuesser: async () => {
+      calls++;
+      if (calls === 1) return { legal: true, guess: 'eldstad' }; // wrong length
+      if (calls === 2) return null;                              // unusable
+      return { legal: true, guess: 'fabrik' };
+    },
+  };
+  const v = await runGuesserLoop({ clue: 'hus varv rök', target: 'fabrik', targetLetterCount: 6, ai: recovers });
+  assert.equal(v.type, 'correct');
+  assert.equal(calls, 3);
+});
+
+test('repeated blanks still give up, so a dead API does not burn the budget', async () => {
+  // null also covers "the call failed". A player is waiting, so this must not
+  // spend every round retrying something that is not coming back.
+  let calls = 0;
+  const dead = {
+    guardedGuesser: async () => { calls++; return calls === 1 ? { legal: true, guess: 'eldstad' } : null; },
+  };
+  const v = await runGuesserLoop({ clue: 'x', target: 'fabrik', targetLetterCount: 6, ai: dead });
+  assert.equal(v.type, 'ai_failure');
+  assert.equal(v.guess, 'eldstad');
+  assert.ok(calls <= 3, `expected an early stop, got ${calls} calls`);
+});
+
+test('a stubborn wrong-length guess uses the whole round budget', async () => {
+  // The visible symptom of the bug above was "that came back too fast", so the
+  // number of attempts is worth pinning down.
+  let calls = 0;
+  const stubborn = { guardedGuesser: async () => { calls++; return { legal: true, guess: 'eldstad' }; } };
+  const v = await runGuesserLoop({ clue: 'x', target: 'fabrik', targetLetterCount: 6, ai: stubborn });
+  assert.equal(v.type, 'ai_failure');
+  assert.equal(calls, MAX_GUESS_ROUNDS);
+});
+
 test('checkClueCode rejects inflections the substring test cannot see', () => {
   // The rules always said inflections were out, but the check was a substring
   // test — and "stövlar" is not a substring of "stövel", because the e drops.
@@ -402,11 +443,32 @@ test('the guess prompt never receives the target or forbidden words', async () =
     guardedGuesser: async (args) => { seen = args; return { legal: true, guess: 'morot' }; },
   };
   await judgeClue({ clue: 'kaninmat', target: 'morot', forbidden: ['grönsak', 'orange'], ai });
-  assert.deepEqual(Object.keys(seen).sort(), ['clue', 'feedback', 'letterCount']);
+  // The exact key set is pinned on purpose: a new field is the obvious way the
+  // answer would eventually get smuggled in, so adding one has to be a
+  // deliberate edit here.
+  assert.deepEqual(Object.keys(seen).sort(), ['clue', 'feedback', 'letterCount', 'wordClass']);
   const serialised = JSON.stringify(seen);
   assert.ok(!serialised.includes('morot'), 'target leaked into the guesser call');
   assert.ok(!serialised.includes('grönsak'), 'forbidden word leaked into the guesser call');
   assert.equal(seen.letterCount, 5);
+});
+
+test('the word class passed to the guesser is a class, never the word', async () => {
+  // wordClass is the one field that comes straight off the bank entry, so it
+  // is the one that could carry the answer if a bank row were mistyped. Only
+  // these two values ever reach the model; nouns send nothing.
+  let seen = null;
+  const ai = { guardedGuesser: async (a) => { seen = a; return { legal: true, guess: 'springa' }; } };
+
+  await judgeClue({ clue: 'x', target: 'springa', forbidden: [], wordClass: 'verb', ai });
+  assert.equal(seen.wordClass, 'verb');
+
+  for (const { word, class: cls } of WORDS) {
+    assert.ok(
+      cls === undefined || cls === 'verb' || cls === 'adjektiv',
+      `${word} has an unexpected class: ${cls}`,
+    );
+  }
 });
 
 test('guesser loop: wrong length re-prompted, then accepted', async () => {

@@ -473,7 +473,13 @@ export default function App() {
       <main className="card">
         <div className="puzzle">
           <span className="label">{practice ? 'Övningsord' : 'Dagens ord'}</span>
-          <p className="target">{active.word}</p>
+          <p className="target">
+            {active.word}
+            {/* Only for verbs and adjectives. The bank is mostly nouns, so
+                labelling those too would be noise — and "springa" being both a
+                verb and a noun is exactly when the player needs to be told. */}
+            {active.wordClass && <span className="word-class">{active.wordClass}</span>}
+          </p>
           <div className="forbidden">
             <span className="label">Får inte användas</span>
             <span className="chips">

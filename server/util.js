@@ -203,6 +203,21 @@ export function inflectionsOf(word) {
     add(...['ar', 'arna', 'ars', 'arnas', 'en', 'ens'].map((s) => stem + s));
   }
 
+  // Verbs are listed in the infinitive, which ends in -a for all but a handful.
+  // springa → springer, sprang, sprungit are irregular and out of reach, but
+  // the regular conjugation is not: viska → viskar, viskade, viskat.
+  if (w.endsWith('a')) {
+    const stem = w.slice(0, -1);
+    add(...['ar', 'ade', 'at', 'as', 'ades', 'ats', 'andes'].map((s) => stem + s));
+    add(stem + 'ande'); // present participle: viskande
+  }
+
+  // Adjectives inflect for gender, number and degree: grön → grönt, gröna,
+  // grönare, grönast. The comparative is the one that matters most, since it
+  // is the form a player would reach for.
+  add(...['t', 'a', 'are', 'ast', 'aste', 'ares'].map((s) => w + s));
+  if (w.endsWith('ig')) add(...['t', 'a', 'are', 'ast', 'aste'].map((s) => w + s));
+
   return out;
 }
 

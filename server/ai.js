@@ -181,11 +181,11 @@ const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
  * kock). Closing that properly means putting translations in the word bank
  * and checking them in code, which is free and deterministic.
  */
-export async function guardedGuesser({ clue, letterCount, feedback = [], onFailure }) {
-  const system = guesserSystemPrompt(letterCount);
+export async function guardedGuesser({ clue, letterCount, wordClass, feedback = [], onFailure }) {
+  const system = guesserSystemPrompt(letterCount, wordClass);
 
   const contents = [
-    userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.`),
+    userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.${wordClass ? `\nOrdklass: ${wordClass}.` : ''}`),
   ];
   for (const fb of feedback) {
     contents.push(modelTurn(JSON.stringify({ legal: true, guess: fb.guess })));
@@ -231,6 +231,18 @@ Detsamma gäller **förkortade** exempel: "sept" och "okt" är samma drag som "n
 
 Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–3.`;
 
+/**
+ * The bank is mostly nouns, so a model with no class given will reach for one.
+ * Saying the class outright is what stops every verb and adjective from being
+ * harder for a reason unrelated to the clue — and it gives nothing away that
+ * the player cannot already see, since the word is printed on their screen.
+ */
+function classLine(wordClass) {
+  return wordClass
+    ? `Ordet är ett ${wordClass}. Gissa ett ord av den ordklassen.`
+    : 'Ordet är ett substantiv.';
+}
+
 const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.`;
 
 /**
@@ -243,14 +255,15 @@ const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga
  * easier than the rest of the bank, for a reason with nothing to do with the
  * clue. Every illustration therefore uses words that are not targets.
  */
-export function guesserSystemPrompt(letterCount) {
+export function guesserSystemPrompt(letterCount, wordClass) {
   return `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
 
 ${CLUE_CULTURE}
 
 ${CLUE_RULES}
 
-STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt ${letterCount} bokstäver. Hitta inte på ord.
+STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb, grundform för adjektiv) med exakt ${letterCount} bokstäver. Hitta inte på ord.
+${classLine(wordClass)}
 
 ${GUESS_FORM}
 
@@ -301,7 +314,8 @@ export function parseBatchGuesses(text) {
  */
 export async function batchedGuesser({ items, onFailure }) {
   if (!items?.length) return new Map();
-  const lines = items.map((it) => `${it.id}. Ledtråd: "${it.clue}" — ${it.letterCount} bokstäver`);
+  const lines = items.map((it) =>
+    `${it.id}. Ledtråd: "${it.clue}" — ${it.letterCount} bokstäver${it.wordClass ? `, ${it.wordClass}` : ''}`);
 
   try {
     const response = await generate({
@@ -343,7 +357,7 @@ VIKTIGAST AV ALLT: ledtrådarna kommer från olika spelare som inte kan se varan
 
 ${CLUE_RULES}
 
-STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt det antal bokstäver som anges för just den ledtråden. Hitta inte på ord.
+STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb, grundform för adjektiv) med exakt det antal bokstäver som anges för just den ledtråden. Anges en ordklass ska gissningen vara av den ordklassen; anges ingen är ordet ett substantiv. Hitta inte på ord.
 
 ${GUESS_FORM}
 

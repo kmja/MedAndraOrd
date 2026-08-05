@@ -100,6 +100,7 @@ export async function stateHandler(req, res) {
     word,
     forbidden,
     letterCount,
+    wordClass: today.class ?? null,
     maxClueLength: clueLimitFor(today),
     maxAttempts: MAX_ATTEMPTS,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
@@ -123,6 +124,7 @@ export async function randomHandler(req, res) {
     word: entry.word,
     forbidden: entry.forbidden,
     letterCount: entry.letterCount,
+    wordClass: entry.class ?? null,
     maxClueLength: clueLimitFor(entry),
   });
 }
@@ -156,7 +158,8 @@ export async function clueHandler(req, res) {
     if (!verdict) {
       try {
         verdict = await judgeClue({
-          clue, target: entry.word, forbidden: entry.forbidden, maxLength: clueLimitFor(entry),
+          clue, target: entry.word, forbidden: entry.forbidden,
+          maxLength: clueLimitFor(entry), wordClass: entry.class,
         });
       } catch (err) {
         if (err instanceof AiUnavailableError) {
@@ -165,7 +168,12 @@ export async function clueHandler(req, res) {
         console.error('judgeClue (practice) failed:', err);
         return send(res, 500, { error: 'Något gick fel.' });
       }
-      cachePractice(key, verdict);
+      // Same rule as the daily path: an AI failure is not a ruling about the
+      // clue, it is transient misbehaviour. Caching it froze the clue as
+      // permanently failed, so resubmitting returned the old failure instantly
+      // instead of giving the model another go — which is exactly what it
+      // looked like from the outside.
+      if (isCacheableVerdict(verdict)) cachePractice(key, verdict);
     }
     return send(res, 200, { result: verdict, practice: true });
   }
@@ -185,7 +193,9 @@ export async function clueHandler(req, res) {
   if (!verdict) {
     cached = false;
     try {
-      verdict = await judgeClue({ clue, target: word, forbidden, maxLength: clueLimitFor(today) });
+      verdict = await judgeClue({
+        clue, target: word, forbidden, maxLength: clueLimitFor(today), wordClass: today.class,
+      });
     } catch (err) {
       if (err instanceof AiUnavailableError) {
         return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund — inget försök förbrukades.' });

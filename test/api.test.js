@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 // Point the store somewhere disposable before anything imports it — the store
 // is a module-level singleton created on first use, so this must run first.
@@ -126,4 +127,19 @@ test('a rejected clue never consumes an attempt, however many times it is sent',
     assert.equal(res.body.result.type, 'rejected');
     assert.equal(res.body.attemptsLeft, 5, `attempt consumed on submission ${i + 1}`);
   }
+});
+
+test('practice mode does not cache an AI failure', async () => {
+  // The daily path already refused to cache these. Practice cached everything,
+  // so a clue that hit a transient failure stayed failed: resubmitting it
+  // returned the stale verdict instantly instead of letting the model try
+  // again.
+  const { isCacheableVerdict } = await import('../server/game.js');
+  assert.equal(isCacheableVerdict({ type: 'ai_failure', guess: 'eldstad' }), false);
+  const src = await readFile(new URL('../server/handlers.js', import.meta.url), 'utf8');
+  assert.match(
+    src,
+    /if \(isCacheableVerdict\(verdict\)\) cachePractice\(key, verdict\)/,
+    'practice caching must be gated on isCacheableVerdict',
+  );
 });

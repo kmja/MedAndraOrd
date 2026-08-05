@@ -10,9 +10,17 @@ import { dayNumber, letterCount } from './util.js';
 // by the tests, so new batches can be pasted in and validated by `npm test`.
 //
 // Authored in themed batches (natur · hem & mat · samhälle & teknik · kultur &
-// kropp) and stored in that order, so the array is grouped by theme. The daily
-// rotation does not walk the array in order — it strides across it (see
-// wordForDate) precisely so consecutive days don't come from the same batch.
+// kropp · verb · adjektiv) and stored in that order, so the array is grouped by
+// theme. The daily rotation does not walk the array in order — it strides
+// across it (see wordForDate) precisely so consecutive days don't come from the
+// same batch.
+//
+// Most entries are nouns and carry no `class`. Verbs and adjectives say so, and
+// that word class is passed to the guesser alongside the letter count. Without
+// it, a mostly-noun bank teaches the model to answer with nouns, and every verb
+// and adjective would be harder for a reason that has nothing to do with the
+// player's clue. The player can see the word class on screen, so telling the
+// guesser evens the two up rather than giving anything away.
 export const WORDS = [
   { word: 'morot', forbidden: ['grönsak', 'orange', 'kanin', 'rot', 'odla'] },
   { word: 'sommar', forbidden: ['årstid', 'sol', 'varm', 'semester', 'vinter'] },
@@ -389,7 +397,88 @@ export const WORDS = [
   { word: 'kalas', forbidden: ['fest', 'tårta', 'födelsedag', 'gäst', 'barn'] },
   { word: 'tårta', forbidden: ['ljus', 'födelsedag', 'grädde', 'söt', 'baka'] },
   { word: 'present', forbidden: ['paket', 'ge', 'födelsedag', 'snöre', 'öppna'] },
-  { word: 'krans', forbidden: ['blomma', 'midsommar', 'huvud', 'rund', 'bind'] },];
+  { word: 'krans', forbidden: ['blomma', 'midsommar', 'huvud', 'rund', 'bind'] },
+
+  // --- verb ---
+  { word: 'viska', forbidden: ['tyst', 'prata', 'öra', 'hemlighet', 'låg'], class: 'verb' },
+  { word: 'gäspa', forbidden: ['trött', 'mun', 'sömn', 'öppna', 'morgon'], class: 'verb' },
+  { word: 'krypa', forbidden: ['golv', 'långsam', 'mage', 'insekt', 'bebis'], class: 'verb' },
+  { word: 'simma', forbidden: ['vatten', 'bassäng', 'hav', 'flyta', 'bad'], class: 'verb' },
+  { word: 'vissla', forbidden: ['mun', 'melodi', 'ton', 'ljud', 'låt'], class: 'verb' },
+  { word: 'snarka', forbidden: ['sova', 'ljud', 'natt', 'näsa', 'säng'], class: 'verb' },
+  { word: 'blinka', forbidden: ['öga', 'ljus', 'snabb', 'signal', 'lampa'], class: 'verb' },
+  { word: 'frysa', forbidden: ['kall', 'is', 'kyla', 'vinter', 'grader'], class: 'verb' },
+  { word: 'smälta', forbidden: ['is', 'värme', 'flytande', 'snö', 'choklad'], class: 'verb' },
+  { word: 'knacka', forbidden: ['dörr', 'ljud', 'slå', 'hand', 'hammare'], class: 'verb' },
+  { word: 'gräva', forbidden: ['jord', 'spade', 'hål', 'mark', 'skatt'], class: 'verb' },
+  { word: 'vandra', forbidden: ['gå', 'skog', 'led', 'fötter', 'tur'], class: 'verb' },
+  { word: 'sjunga', forbidden: ['röst', 'sång', 'ton', 'kör', 'musik'], class: 'verb' },
+  { word: 'dansa', forbidden: ['musik', 'rörelse', 'golv', 'steg', 'takt'], class: 'verb' },
+  { word: 'måla', forbidden: ['färg', 'pensel', 'tavla', 'konst', 'vägg'], class: 'verb' },
+  { word: 'bygga', forbidden: ['hus', 'konstruera', 'tegel', 'snickare', 'grund'], class: 'verb' },
+  { word: 'städa', forbidden: ['ren', 'damm', 'sopa', 'hem', 'ordning'], class: 'verb' },
+  { word: 'vattna', forbidden: ['växt', 'kanna', 'torr', 'blomma', 'jord'], class: 'verb' },
+  { word: 'drömma', forbidden: ['sömn', 'natt', 'fantasi', 'mardröm', 'önska'], class: 'verb' },
+  { word: 'lyssna', forbidden: ['öra', 'ljud', 'höra', 'tyst', 'uppmärksam'], class: 'verb' },
+  { word: 'glömma', forbidden: ['minne', 'komma', 'tappa', 'hjärna', 'påminna'], class: 'verb' },
+  { word: 'längta', forbidden: ['sakna', 'vilja', 'önska', 'vänta', 'hem'], class: 'verb' },
+  { word: 'hoppa', forbidden: ['studsa', 'upp', 'ben', 'hage', 'luft'], class: 'verb' },
+  { word: 'kasta', forbidden: ['boll', 'hand', 'luft', 'slänga', 'mål'], class: 'verb' },
+  { word: 'fånga', forbidden: ['boll', 'hand', 'gripa', 'fisk', 'nät'], class: 'verb' },
+  { word: 'somna', forbidden: ['sömn', 'säng', 'natt', 'trött', 'vakna'], class: 'verb' },
+  { word: 'tvätta', forbidden: ['ren', 'vatten', 'tvål', 'kläder', 'maskin'], class: 'verb' },
+  { word: 'steka', forbidden: ['panna', 'olja', 'spis', 'mat', 'brun'], class: 'verb' },
+  { word: 'borsta', forbidden: ['tand', 'hår', 'borste', 'ren', 'päls'], class: 'verb' },
+  { word: 'krama', forbidden: ['armar', 'famn', 'kärlek', 'tryck', 'hälsa'], class: 'verb' },
+  { word: 'vinka', forbidden: ['hand', 'hej', 'adjö', 'arm', 'hälsa'], class: 'verb' },
+  { word: 'halka', forbidden: ['is', 'glatt', 'falla', 'snö', 'underlag'], class: 'verb' },
+  { word: 'skrika', forbidden: ['hög', 'röst', 'ljud', 'rädd', 'öra'], class: 'verb' },
+  { word: 'gnida', forbidden: ['fram', 'tillbaka', 'yta', 'hand', 'tryck'], class: 'verb' },
+  { word: 'smyga', forbidden: ['tyst', 'långsam', 'oupptäckt', 'tå', 'gömma'], class: 'verb' },
+  { word: 'klänga', forbidden: ['hålla', 'upp', 'gren', 'fast', 'apa'], class: 'verb' },
+  { word: 'plocka', forbidden: ['hand', 'bär', 'svamp', 'korg', 'skog'], class: 'verb' },
+  { word: 'skölja', forbidden: ['vatten', 'ren', 'kran', 'disk', 'hälla'], class: 'verb' },
+  { word: 'vrida', forbidden: ['runt', 'varv', 'hand', 'ratt', 'vrid'], class: 'verb' },
+
+  // --- adjektiv ---
+  { word: 'modig', forbidden: ['mod', 'rädd', 'hjälte', 'våga', 'tapper'], class: 'adjektiv' },
+  { word: 'envis', forbidden: ['vilja', 'bestämd', 'ge', 'sta', 'envishet'], class: 'adjektiv' },
+  { word: 'girig', forbidden: ['pengar', 'snål', 'samla', 'girighet', 'begär'], class: 'adjektiv' },
+  { word: 'blyg', forbidden: ['tyst', 'folk', 'rodna', 'social', 'tillbakadragen'], class: 'adjektiv' },
+  { word: 'pigg', forbidden: ['trött', 'energi', 'vaken', 'frisk', 'morgon'], class: 'adjektiv' },
+  { word: 'mätt', forbidden: ['hungrig', 'äta', 'mage', 'mat', 'nöjd'], class: 'adjektiv' },
+  { word: 'brant', forbidden: ['backe', 'lutning', 'uppför', 'berg', 'sluttning'], class: 'adjektiv' },
+  { word: 'smal', forbidden: ['tunn', 'bred', 'mager', 'midja', 'bredd'], class: 'adjektiv' },
+  { word: 'tjock', forbidden: ['tunn', 'bred', 'fet', 'lager', 'tjocklek'], class: 'adjektiv' },
+  { word: 'mjuk', forbidden: ['hård', 'kudde', 'ull', 'beröring', 'känsla'], class: 'adjektiv' },
+  { word: 'sträv', forbidden: ['slät', 'yta', 'grov', 'sandpapper', 'känna'], class: 'adjektiv' },
+  { word: 'besk', forbidden: ['smak', 'bitter', 'mandel', 'kaffe', 'tunga'], class: 'adjektiv' },
+  { word: 'kylig', forbidden: ['kall', 'temperatur', 'luft', 'sval', 'frost'], class: 'adjektiv' },
+  { word: 'ivrig', forbidden: ['entusiasm', 'otålig', 'vänta', 'spänd', 'glad'], class: 'adjektiv' },
+  { word: 'vaken', forbidden: ['sova', 'öppen', 'natt', 'medveten', 'morgon'], class: 'adjektiv' },
+  { word: 'klok', forbidden: ['vis', 'smart', 'dum', 'kunskap', 'råd'], class: 'adjektiv' },
+  { word: 'ärlig', forbidden: ['sanning', 'ljuga', 'uppriktig', 'lita', 'rak'], class: 'adjektiv' },
+  { word: 'ledsen', forbidden: ['gråta', 'tår', 'sorg', 'glad', 'humör'], class: 'adjektiv' },
+  { word: 'lugn', forbidden: ['stress', 'stilla', 'fridfull', 'andas', 'ro'], class: 'adjektiv' },
+  { word: 'snabb', forbidden: ['fort', 'långsam', 'hastighet', 'springa', 'kvick'], class: 'adjektiv' },
+  { word: 'tung', forbidden: ['vikt', 'lätt', 'bära', 'kilo', 'lyfta'], class: 'adjektiv' },
+  { word: 'vass', forbidden: ['kniv', 'egg', 'skära', 'spets', 'tagg'], class: 'adjektiv' },
+  { word: 'trång', forbidden: ['smal', 'plats', 'klämma', 'bred', 'utrymme'], class: 'adjektiv' },
+  { word: 'rymlig', forbidden: ['plats', 'stor', 'utrymme', 'trång', 'öppen'], class: 'adjektiv' },
+  { word: 'ihålig', forbidden: ['tom', 'inuti', 'rör', 'ek', 'fylld'], class: 'adjektiv' },
+  { word: 'dyster', forbidden: ['mörk', 'glad', 'stämning', 'grå', 'hopplös'], class: 'adjektiv' },
+  { word: 'slö', forbidden: ['vass', 'trött', 'lat', 'energi', 'matt'], class: 'adjektiv' },
+  { word: 'fuktig', forbidden: ['blöt', 'torr', 'vatten', 'luft', 'klam'], class: 'adjektiv' },
+  { word: 'bräcklig', forbidden: ['ömtålig', 'gå', 'glas', 'stark', 'försiktig'], class: 'adjektiv' },
+  { word: 'luddig', forbidden: ['hår', 'yta', 'oskarp', 'ull', 'mjuk'], class: 'adjektiv' },
+  { word: 'skarp', forbidden: ['kniv', 'tydlig', 'suddig', 'egg', 'blick'], class: 'adjektiv' },
+  { word: 'stormig', forbidden: ['vind', 'väder', 'hav', 'lugn', 'blåst'], class: 'adjektiv' },
+  { word: 'kryddig', forbidden: ['smak', 'stark', 'peppar', 'mat', 'chili'], class: 'adjektiv' },
+  { word: 'nyfiken', forbidden: ['undra', 'fråga', 'veta', 'katt', 'intresse'], class: 'adjektiv' },
+  { word: 'tacksam', forbidden: ['tack', 'glad', 'uppskatta', 'gåva', 'skuld'], class: 'adjektiv' },
+  { word: 'bekväm', forbidden: ['skön', 'stol', 'mjuk', 'obekväm', 'vila'], class: 'adjektiv' },
+  { word: 'hemlig', forbidden: ['dold', 'viska', 'avslöja', 'gömma', 'tyst'], class: 'adjektiv' },
+];
 
 export function wordByIndex(idx) {
   const entry = WORDS[idx];
@@ -399,6 +488,9 @@ export function wordByIndex(idx) {
     word: entry.word,
     forbidden: entry.forbidden,
     letterCount: letterCount(entry.word),
+    // Nouns carry no class; verbs and adjectives do. See the header comment
+    // for why the guesser is told.
+    class: entry.class,
     // Optional, and absent for every word that hasn't been probed yet —
     // clueLimitFor() falls back to the global default. Carried through here so
     // callers never have to reach back into WORDS for it.
