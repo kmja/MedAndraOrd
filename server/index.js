@@ -4,13 +4,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Store } from './store.js';
-import { wordForDate } from './words.js';
+import { wordForDate, wordByIndex, randomWord, WORDS } from './words.js';
 import { judgeClue, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
 import { normalize, sanitizeName, todayInStockholm, MAX_CLUE_LENGTH } from './util.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const DATA_FILE = process.env.LEDTRADEN_DATA || path.join(__dirname, '..', 'data', 'store.json');
+
+// Practice mode ("slumpa ord") is a testing aid: a random word that is never
+// today's, judged by the same pipeline but recorded nowhere. Set
+// LEDTRADEN_PRACTICE=0 to remove it from a public deployment.
+const PRACTICE_ENABLED = process.env.LEDTRADEN_PRACTICE !== '0';
 
 const store = new Store(DATA_FILE);
 const app = express();
@@ -58,6 +63,19 @@ function rateLimited(pid) {
   return bucket.count > RATE_LIMIT.max;
 }
 
+// Practice verdicts are cached in memory only — practice has no fairness
+// requirement, so there is nothing worth persisting. Bounded so a long-running
+// process can't grow without limit.
+const practiceCache = new Map();
+const PRACTICE_CACHE_MAX = 2000;
+
+function cachePractice(key, verdict) {
+  if (practiceCache.size >= PRACTICE_CACHE_MAX) {
+    practiceCache.delete(practiceCache.keys().next().value);
+  }
+  practiceCache.set(key, verdict);
+}
+
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
@@ -81,6 +99,22 @@ app.get('/api/state', (req, res) => {
     best: player.best,
     name: store.getName(pid),
     leaderboard: store.leaderboard(date, index),
+    practiceEnabled: PRACTICE_ENABLED,
+    bankSize: WORDS.length,
+  });
+});
+
+/** A random practice word — never today's, and never scored. */
+app.get('/api/random', (req, res) => {
+  if (!PRACTICE_ENABLED) return res.status(404).json({ error: 'Övningsläget är avstängt.' });
+  const { index: todayIndex } = wordForDate(todayInStockholm());
+  const entry = randomWord(todayIndex);
+  res.json({
+    wordIndex: entry.index,
+    word: entry.word,
+    forbidden: entry.forbidden,
+    letterCount: entry.letterCount,
+    maxClueLength: MAX_CLUE_LENGTH,
   });
 });
 
@@ -97,7 +131,34 @@ app.post('/api/clue', async (req, res) => {
   if (clue.length > 200) return res.status(400).json({ error: 'Ledtråden är för lång.' });
 
   const date = todayInStockholm();
-  const { index, word, forbidden } = wordForDate(date);
+  const today = wordForDate(date);
+
+  // ---- Practice mode: judged identically, recorded nowhere. ----
+  if (req.body?.practice) {
+    if (!PRACTICE_ENABLED) return res.status(404).json({ error: 'Övningsläget är avstängt.' });
+    const entry = wordByIndex(Number(req.body.wordIndex));
+    if (!entry) return res.status(400).json({ error: 'Okänt övningsord.' });
+    // Practising on the live word would be a free way around the daily limit.
+    if (entry.index === today.index) {
+      return res.status(403).json({ error: 'Dagens ord kan inte övas på. Slumpa ett annat ord.' });
+    }
+    let verdict = practiceCache.get(`${entry.index}:${normalize(clue)}`);
+    if (!verdict) {
+      try {
+        verdict = await judgeClue({ clue, target: entry.word, forbidden: entry.forbidden });
+      } catch (err) {
+        if (err instanceof AiUnavailableError) {
+          return res.status(503).json({ error: 'Linjen är bruten — mottagaren svarar inte. Försök igen om en stund.' });
+        }
+        console.error('judgeClue (practice) failed:', err);
+        return res.status(500).json({ error: 'Något gick fel.' });
+      }
+      cachePractice(`${entry.index}:${normalize(clue)}`, verdict);
+    }
+    return res.json({ result: verdict, practice: true });
+  }
+
+  const { index, word, forbidden } = today;
   const player = store.player(date, index, pid);
 
   if (player.attempts >= MAX_ATTEMPTS) {

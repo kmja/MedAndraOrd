@@ -51,9 +51,27 @@ Deterministiska kontroller i kod (`server/util.js`):
 
 ### Ordbank & rotation
 
-`server/words.js`: handförfattade förbjudna listor (Taboo-hantverket), viktad
-mot 5–6-bokstavsord. Daglig rotation är deterministisk från datumet
-(Europe/Stockholm) — alla spelare får samma ord samma dag.
+`server/words.js`: **376 ord** med handförfattade spärrlistor (Taboo-hantverket),
+64 % är 5–6 bokstäver. Ett ord per dag: rotationen är deterministisk från datumet
+(Europe/Stockholm) — alla spelare får samma ord samma dag, och banken räcker
+drygt ett år innan något ord återkommer.
+
+Rotationen *stegar* genom banken (`STRIDE = 97`) i stället för att gå i ordning,
+eftersom banken är författad i temablock — utan steget skulle en hel vecka bli
+"natur". Steget måste vara relativt primt med bankens storlek, annars täcker
+rotationen bara en del av banken; det finns ett test för det.
+
+### Övningsläge (”Slumpa ord”)
+
+En testknapp som slumpar fram ett annat ord, kört genom exakt samma pipeline men
+**registrerat ingenstans**: ingen taxa, inga förbrukade försök, ingen topplista.
+
+Två spärrar gör att knappen inte blir ett kryphål: övningsläget vägrar spela
+**dagens** ord (annars kunde man testa ledtrådar gratis och sedan skicka den
+vinnande på riktigt — hela dygnsgränsen vore verkningslös), och `wordIndex`
+valideras mot banken. Övningsdomar cacheas bara i minnet (bunden storlek) och
+samma rate limiting gäller. Sätt `LEDTRADEN_PRACTICE=0` för att ta bort läget
+helt ur en publik deploy.
 
 Mekaniken är språkagnostisk: allt svenskt bor i de tre prompterna
 (`server/ai.js`) och ordbanken. Ett nytt språk = översätt prompterna + ny ordlista.
@@ -79,13 +97,16 @@ Tester (ren logik, inga API-anrop): `npm test`
 | `LEDTRADEN_MODEL` | `claude-haiku-4-5` | Modell för alla tre rollerna (spec: "a small model suffices"). |
 | `PORT` | `3000` | |
 | `LEDTRADEN_DATA` | `data/store.json` | Lagringsfil (atomisk skrivning; byt ut `Store` mot en riktig databas i skala). |
+| `LEDTRADEN_PRACTICE` | på | Sätt till `0` för att stänga av övningsläget (”Slumpa ord”). |
 
 ## API
 
 | Endpoint | Beskrivning |
 |---|---|
-| `GET /api/state` | Dagens ord, förbjudna ord, försök kvar, topplista. |
+| `GET /api/state` | Dagens ord, spärrade ord, försök kvar, topplista, bankens storlek. |
+| `GET /api/random` | Ett slumpat övningsord (aldrig dagens). |
 | `POST /api/clue {clue}` | Kör hela pipelinen. Svar: `rejected` (kostar inget) / `correct` / `wrong` / `ai_failure` (räknas som miss). |
+| `POST /api/clue {clue, practice, wordIndex}` | Övningsläge: samma bedömning, men inget registreras. Vägrar dagens ord. |
 | `POST /api/name {name}` | Sätter modererat topplistenamn. |
 
 ## Kalibreringsrisker (kända)

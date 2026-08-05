@@ -23,6 +23,7 @@ export default function App() {
   const [history, setHistory] = useState([]); // this session's submissions
   const [flash, setFlash] = useState(null);
   const [nameInput, setNameInput] = useState('');
+  const [practice, setPractice] = useState(null); // { wordIndex, word, forbidden, letterCount }
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -37,7 +38,9 @@ export default function App() {
   if (loadError) return <div className="shell"><p className="error">{loadError}</p></div>;
   if (!state) return <div className="shell"><p className="muted">Öppnar linjen…</p></div>;
 
-  const outOfAttempts = state.attemptsLeft <= 0;
+  // In practice mode the shown word comes from /api/random and nothing is scored.
+  const active = practice ?? state;
+  const outOfAttempts = !practice && state.attemptsLeft <= 0;
   const clueLen = charCount(clue.trim());
   const tooLong = clueLen > state.maxClueLength;
 
@@ -48,17 +51,22 @@ export default function App() {
     setBusy(true);
     setFlash(null);
     try {
-      const res = await api('/api/clue', {
-        method: 'POST',
-        body: JSON.stringify({ clue: text }),
-      });
-      setHistory((h) => [{ clue: text, ...res.result, cached: res.cached }, ...h]);
-      setState((s) => ({
-        ...s,
-        attemptsLeft: res.attemptsLeft,
-        best: res.best,
-        leaderboard: res.leaderboard,
-      }));
+      const body = practice
+        ? { clue: text, practice: true, wordIndex: practice.wordIndex }
+        : { clue: text };
+      const res = await api('/api/clue', { method: 'POST', body: JSON.stringify(body) });
+      setHistory((h) => [
+        { clue: text, ...res.result, cached: res.cached, practice: !!res.practice },
+        ...h,
+      ]);
+      if (!res.practice) {
+        setState((s) => ({
+          ...s,
+          attemptsLeft: res.attemptsLeft,
+          best: res.best,
+          leaderboard: res.leaderboard,
+        }));
+      }
       if (res.result.type !== 'rejected') setClue('');
       inputRef.current?.focus();
     } catch (err) {
@@ -66,6 +74,26 @@ export default function App() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function randomize() {
+    setFlash(null);
+    try {
+      const w = await api('/api/random');
+      setPractice(w);
+      setHistory([]);
+      setClue('');
+      inputRef.current?.focus();
+    } catch (err) {
+      setFlash(err.message);
+    }
+  }
+
+  function backToToday() {
+    setPractice(null);
+    setHistory([]);
+    setClue('');
+    setFlash(null);
   }
 
   async function saveName(e) {
@@ -99,34 +127,59 @@ export default function App() {
         </p>
       </header>
 
-      <section className="card word-card">
+      <section className={practice ? 'card word-card practice' : 'card word-card'}>
+        {practice && (
+          <div className="practice-banner">
+            Övningsläge — ej dagens ord, ingen taxa, ingen liggare
+          </div>
+        )}
         <div className="word-row">
           <div>
-            <div className="label">Dagens ord</div>
-            <div className="secret-word">{state.word.toUpperCase()}</div>
-            <div className="muted">{state.letterCount} bokstäver</div>
+            <div className="label">{practice ? 'Övningsord' : 'Dagens ord'}</div>
+            <div className="secret-word">{active.word.toUpperCase()}</div>
+            <div className="muted">{active.letterCount} bokstäver</div>
           </div>
-          <div className="attempts">
-            <div className="label">Sändningar kvar</div>
-            <div className="attempt-dots">
-              {Array.from({ length: state.maxAttempts }, (_, i) => (
-                <span key={i} className={i < state.attemptsLeft ? 'dot on' : 'dot'} />
-              ))}
+          {practice ? (
+            <div className="attempts">
+              <div className="label">Sändningar</div>
+              <div className="unlimited">fritt</div>
             </div>
-          </div>
+          ) : (
+            <div className="attempts">
+              <div className="label">Sändningar kvar</div>
+              <div className="attempt-dots">
+                {Array.from({ length: state.maxAttempts }, (_, i) => (
+                  <span key={i} className={i < state.attemptsLeft ? 'dot on' : 'dot'} />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <div className="forbidden">
           <div className="label">Spärrade ord — sänds ej</div>
           <div className="chips">
-            {state.forbidden.map((f) => (
+            {active.forbidden.map((f) => (
               <span key={f} className="chip">{f}</span>
             ))}
           </div>
         </div>
+        {state.practiceEnabled && (
+          <div className="practice-controls">
+            <button type="button" className="ghost" onClick={randomize}>
+              Slumpa ord
+            </button>
+            {practice && (
+              <button type="button" className="ghost" onClick={backToToday}>
+                Åter till dagens ord
+              </button>
+            )}
+            <span className="bank-note">{state.bankSize} ord i banken</span>
+          </div>
+        )}
       </section>
 
       <section className="card">
-        {state.best != null && (
+        {state.best != null && !practice && (
           <p className="best">Ert billigaste telegram idag: <strong>{state.best} tecken</strong></p>
         )}
         <form onSubmit={submit} className="clue-form">
@@ -159,7 +212,7 @@ export default function App() {
         </ul>
       </section>
 
-      <section className="card">
+      <section className="card" hidden={!!practice}>
         <h2>Dagens billigaste telegram</h2>
         {state.leaderboard.length === 0 ? (
           <p className="muted">Inget lyckat telegram har sänts idag. Linjen är er.</p>

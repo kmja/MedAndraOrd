@@ -5,7 +5,7 @@ import {
   normalize, charCount, letterCount, checkClueCode, extractWord,
   sanitizeName, dayNumber, MAX_CLUE_LENGTH,
 } from '../server/util.js';
-import { WORDS, wordForDate } from '../server/words.js';
+import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
 import { runGuesserLoop, judgeClue, MAX_GUESS_ROUNDS } from '../server/game.js';
 
 // ---------------------------------------------------------------------------
@@ -98,6 +98,40 @@ test('daily rotation is deterministic and changes day to day', () => {
   assert.equal(a.word, b.word);
   assert.notEqual(a.index, c.index);
   assert.equal(dayNumber('2026-08-06') - dayNumber('2026-08-05'), 1);
+});
+
+test('rotation visits every word before repeating any', () => {
+  // Requires the stride to be coprime with the bank size; if it isn't, the
+  // rotation silently cycles through a fraction of the bank forever.
+  const seen = new Set();
+  const start = dayNumber('2026-01-01');
+  for (let i = 0; i < WORDS.length; i++) {
+    const d = new Date(Date.UTC(1970, 0, 1) + (start + i) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    seen.add(wordForDate(d).index);
+  }
+  assert.equal(seen.size, WORDS.length, 'rotation does not cover the whole bank');
+});
+
+test('consecutive days are far apart in the bank (themes do not clump)', () => {
+  const a = wordForDate('2026-08-05').index;
+  const b = wordForDate('2026-08-06').index;
+  assert.ok(Math.abs(a - b) > 5, `neighbouring days landed at ${a} and ${b}`);
+});
+
+test('randomWord never returns the excluded (live) word', () => {
+  const todayIndex = wordForDate('2026-08-05').index;
+  for (let i = 0; i < 300; i++) {
+    assert.notEqual(randomWord(todayIndex).index, todayIndex);
+  }
+});
+
+test('wordByIndex rejects out-of-range indexes from the client', () => {
+  assert.equal(wordByIndex(-1), null);
+  assert.equal(wordByIndex(WORDS.length), null);
+  assert.equal(wordByIndex(NaN), null);
+  assert.ok(wordByIndex(0).word);
 });
 
 // ---------------------------------------------------------------------------

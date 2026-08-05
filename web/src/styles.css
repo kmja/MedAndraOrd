@@ -112,6 +112,49 @@ h1 {
   text-decoration-thickness: 1.5px;
 }
 
+/* Övningsläge — visibly provisional, so it can never be mistaken for the
+   day's real telegram. */
+.word-card.practice { border-style: dashed; border-color: var(--stamp); }
+.practice-banner {
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--stamp);
+  border-bottom: 1px dashed var(--rule);
+  padding-bottom: 8px;
+  margin-bottom: 14px;
+}
+.unlimited {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.practice-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--rule);
+}
+button.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  padding: 5px 12px;
+  font-size: 0.72rem;
+}
+button.ghost:hover:not(:disabled) { background: transparent; color: var(--ink); border-color: var(--ink); }
+.bank-note {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
 .clue-form { margin: 0; }
 .input-row { display: flex; gap: 8px; }
 input {
