@@ -11,8 +11,28 @@ async function api(path, options) {
   return body;
 }
 
-function charCount(s) {
-  return [...s].length;
+const chars = (s) => [...String(s ?? '')];
+
+/**
+ * A row of crossword squares. The answer is shown filled — the player already
+ * knows it; it's the AI that's blind — and each guess lands in its own row
+ * below, so right and wrong read as two rows to compare rather than as prose.
+ */
+function LetterRow({ word, tone = 'answer', length }) {
+  const letters = word ? chars(word.toUpperCase()) : Array.from({ length: length ?? 0 }, () => '');
+  return (
+    // --n drives the grid track count so squares shrink to fit rather than
+    // wrapping onto a second line — the bank goes up to 9 letters.
+    <div
+      className={`row row-${tone}`}
+      style={{ '--n': letters.length }}
+      aria-label={word || `${length} bokstäver`}
+    >
+      {letters.map((letter, i) => (
+        <span key={i} className="box" aria-hidden="true">{letter}</span>
+      ))}
+    </div>
+  );
 }
 
 export default function App() {
@@ -20,10 +40,10 @@ export default function App() {
   const [loadError, setLoadError] = useState(null);
   const [clue, setClue] = useState('');
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState([]); // this session's submissions
+  const [history, setHistory] = useState([]);
   const [flash, setFlash] = useState(null);
   const [nameInput, setNameInput] = useState('');
-  const [practice, setPractice] = useState(null); // { wordIndex, word, forbidden, letterCount }
+  const [practice, setPractice] = useState(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -36,13 +56,13 @@ export default function App() {
   }, []);
 
   if (loadError) return <div className="shell"><p className="error">{loadError}</p></div>;
-  if (!state) return <div className="shell"><p className="muted">Öppnar linjen…</p></div>;
+  if (!state) return <div className="shell"><p className="muted">Laddar…</p></div>;
 
-  // In practice mode the shown word comes from /api/random and nothing is scored.
   const active = practice ?? state;
   const outOfAttempts = !practice && state.attemptsLeft <= 0;
-  const clueLen = charCount(clue.trim());
+  const clueLen = chars(clue.trim()).length;
   const tooLong = clueLen > state.maxClueLength;
+  const solved = history.some((h) => h.type === 'correct');
 
   async function submit(e) {
     e.preventDefault();
@@ -55,10 +75,7 @@ export default function App() {
         ? { clue: text, practice: true, wordIndex: practice.wordIndex }
         : { clue: text };
       const res = await api('/api/clue', { method: 'POST', body: JSON.stringify(body) });
-      setHistory((h) => [
-        { clue: text, ...res.result, cached: res.cached, practice: !!res.practice },
-        ...h,
-      ]);
+      setHistory((h) => [{ clue: text, ...res.result }, ...h]);
       if (!res.practice) {
         setState((s) => ({
           ...s,
@@ -112,189 +129,180 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <div className="masthead">Rikstelegrafen · Daglig förbindelse · Nr {state.date}</div>
         <h1>Ledtråden</h1>
         <p className="tagline">
-          Er korrespondent i fjärran har aldrig sett dagens ord.
-          <br />
-          Telegrafera en ledtråd. Varje tecken kostar — billigast vinner.
-        </p>
-        <p
-          className="badge"
-          title="Mottagaren spelas av en AI som endast erhåller telegrammets text samt ordets antal bokstäver — aldrig ordet eller de spärrade orden."
-        >
-          Mottagaren har aldrig sett ordet
+          Skriv en ledtråd så att AI:n gissar ordet. Kortast ledtråd vinner.
         </p>
       </header>
 
-      <section className={practice ? 'card word-card practice' : 'card word-card'}>
-        {practice && (
-          <div className="practice-banner">
-            Övningsläge — ej dagens ord, ingen taxa, ingen liggare
-          </div>
-        )}
-        <div className="word-row">
-          <div>
-            <div className="label">{practice ? 'Övningsord' : 'Dagens ord'}</div>
-            <div className="secret-word">{active.word.toUpperCase()}</div>
-            <div className="muted">{active.letterCount} bokstäver</div>
-          </div>
-          {practice ? (
-            <div className="attempts">
-              <div className="label">Sändningar</div>
-              <div className="unlimited">fritt</div>
-            </div>
-          ) : (
-            <div className="attempts">
-              <div className="label">Sändningar kvar</div>
-              <div className="attempt-dots">
+      <main className="card">
+        <div className="puzzle">
+          <div className="puzzle-head">
+            <span className="label">{practice ? 'Övningsord' : 'Dagens ord'}</span>
+            {!practice && (
+              <span className="attempts" title="Försök kvar idag">
                 {Array.from({ length: state.maxAttempts }, (_, i) => (
                   <span key={i} className={i < state.attemptsLeft ? 'dot on' : 'dot'} />
                 ))}
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="forbidden">
-          <div className="label">Spärrade ord — sänds ej</div>
-          <div className="chips">
-            {active.forbidden.map((f) => (
-              <span key={f} className="chip">{f}</span>
-            ))}
-          </div>
-        </div>
-        {state.practiceEnabled && (
-          <div className="practice-controls">
-            <button type="button" className="ghost" onClick={randomize}>
-              Slumpa ord
-            </button>
-            {practice && (
-              <button type="button" className="ghost" onClick={backToToday}>
-                Åter till dagens ord
-              </button>
+              </span>
             )}
-            <span className="bank-note">{state.bankSize} ord i banken</span>
           </div>
-        )}
-      </section>
 
-      <section className="card">
-        {state.best != null && !practice && (
-          <p className="best">Ert billigaste telegram idag: <strong>{state.best} tecken</strong></p>
-        )}
+          <LetterRow word={active.word} tone="answer" />
+
+          <div className="forbidden">
+            <span className="label">Får inte användas</span>
+            <span className="chips">
+              {active.forbidden.map((f) => (
+                <span key={f} className="chip">{f}</span>
+              ))}
+            </span>
+          </div>
+        </div>
+
         <form onSubmit={submit} className="clue-form">
           <div className="input-row">
             <input
               ref={inputRef}
               value={clue}
               onChange={(e) => setClue(e.target.value)}
-              placeholder={outOfAttempts ? 'Stationen har stängt för idag' : 'Avfatta ert telegram…'}
+              placeholder={outOfAttempts ? 'Inga försök kvar idag' : 'Din ledtråd…'}
               disabled={busy || outOfAttempts}
               autoFocus
               maxLength={60}
-              className="wire-input"
+              aria-label="Din ledtråd"
             />
             <button type="submit" disabled={busy || outOfAttempts || !clue.trim() || tooLong}>
-              {busy ? 'Sänder…' : 'Sänd'}
+              {busy ? 'Gissar…' : 'Testa'}
             </button>
           </div>
-          <div className={tooLong ? 'counter over' : 'counter'}>
-            Taxa: {clueLen} / {state.maxClueLength} tecken
+          <div className="meta-row">
+            <span className={tooLong ? 'counter over' : 'counter'}>
+              {clueLen} / {state.maxClueLength}
+            </span>
+            {!practice && state.best != null && (
+              <span className="best">Bäst idag: {state.best} tecken</span>
+            )}
           </div>
         </form>
+
         {flash && <p className="error">{flash}</p>}
+        {/* The golf loop only happens if players know to keep going. */}
+        {solved && !outOfAttempts && (
+          <p className="muted note">Klarat! Går det med färre tecken?</p>
+        )}
+        {outOfAttempts && <p className="muted note">Nytt ord imorgon.</p>}
 
         <ul className="history">
-          {busy && <li className="entry thinking">— · — ·&ensp;Inväntar svar från mottagaren…</li>}
+          {busy && (
+            <li className="entry thinking">
+              <LetterRow length={active.letterCount} tone="pending" />
+            </li>
+          )}
           {history.map((h, i) => (
-            <HistoryEntry key={history.length - i} entry={h} />
+            <HistoryEntry key={history.length - i} entry={h} letterCount={active.letterCount} />
           ))}
         </ul>
-      </section>
 
-      <section className="card" hidden={!!practice}>
-        <h2>Dagens billigaste telegram</h2>
-        {state.durable === false && (
-          <p className="warn">
-            Liggaren är inte kopplad till något arkiv — resultat försvinner när servern
-            startar om. Lägg till en KV-databas.
-          </p>
+        {state.practiceEnabled && (
+          <div className="practice-controls">
+            {practice ? (
+              <button type="button" className="ghost" onClick={backToToday}>
+                Tillbaka till dagens ord
+              </button>
+            ) : (
+              <button type="button" className="ghost" onClick={randomize}>
+                Öva på ett slumpat ord
+              </button>
+            )}
+          </div>
         )}
-        {state.leaderboard.length === 0 ? (
-          <p className="muted">Inget lyckat telegram har sänts idag. Linjen är er.</p>
-        ) : (
-          <ol className="leaderboard">
-            {state.leaderboard.map((row) => (
-              <li key={row.rank}>
-                <span className="lb-name">{row.name}</span>
-                <span className="lb-score">{row.score} tecken</span>
-              </li>
-            ))}
-          </ol>
-        )}
-        <form onSubmit={saveName} className="name-form">
-          <input
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            placeholder="Ert namn i liggaren"
-            maxLength={20}
-          />
-          <button type="submit" disabled={!nameInput.trim()}>Anteckna</button>
-        </form>
-      </section>
+      </main>
 
-      <footer className="muted">
-        <p>
-          Telegrafistens reglemente: högst {state.maxClueLength} tecken, svenska ord, inga spärrade
-          ord, inga översättningar av målordet, inga förkortningar eller bokstaverings­trick.
-          Avvisade telegram sänds ej och debiteras ej. Taxa = antal tecken i ert kortaste lyckade
-          telegram — lägre är bättre.
-        </p>
-        <p className="fineprint">
-          Mottagaren spelas av en AI som endast erhåller telegrammets text och ordets antal
-          bokstäver — aldrig ordet.
-        </p>
+      {!practice && (
+        <section className="card">
+          <h2>Topplista</h2>
+          {state.durable === false && (
+            <p className="warn">
+              Ingen databas är kopplad — resultaten försvinner när servern startar om.
+            </p>
+          )}
+          {state.leaderboard.length === 0 ? (
+            <p className="muted">Ingen har klarat dagens ord ännu.</p>
+          ) : (
+            <ol className="leaderboard">
+              {state.leaderboard.map((row) => (
+                <li key={row.rank}>
+                  <span className="lb-rank">{row.rank}</span>
+                  <span className="lb-name">{row.name}</span>
+                  <span className="lb-score">{row.score}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          <form onSubmit={saveName} className="name-form">
+            <input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Ditt namn på topplistan"
+              maxLength={20}
+              aria-label="Ditt namn på topplistan"
+            />
+            <button type="submit" className="ghost" disabled={!nameInput.trim()}>
+              Spara
+            </button>
+          </form>
+        </section>
+      )}
+
+      <footer>
+        <details>
+          <summary>Regler</summary>
+          <ul>
+            <li>Högst {state.maxClueLength} tecken.</li>
+            <li>Svenska ord. Inga förkortningar eller bokstaveringstrick.</li>
+            <li>Inte ordet självt, dess böjningar eller de spärrade orden.</li>
+            <li>Inga översättningar av ordet till andra språk.</li>
+            <li>Ledtrådar som bryter mot reglerna kostar inget försök.</li>
+            <li>Poäng = antal tecken i din kortaste lyckade ledtråd. Lägre är bättre.</li>
+          </ul>
+        </details>
+        <p className="fineprint">AI:n ser bara din ledtråd och hur många bokstäver ordet har — aldrig ordet.</p>
       </footer>
     </div>
   );
 }
 
-function HistoryEntry({ entry }) {
-  const sent = <span className="wire sent">SÄNT: {entry.clue.toUpperCase()}</span>;
-
+function HistoryEntry({ entry, letterCount }) {
   if (entry.type === 'rejected') {
     return (
       <li className="entry rejected">
-        <span className="wire refused">EJ SÄNT: {entry.clue.toUpperCase()}</span>
-        <span className="verdict">Telegrafisten vägrar sända: {entry.reason} <em>(ingen taxa — inget försök förbrukat)</em></span>
+        <span className="clue-line"><s>{entry.clue}</s></span>
+        <span className="verdict">{entry.reason} <em>Kostade inget försök.</em></span>
       </li>
     );
   }
-  if (entry.type === 'correct') {
-    return (
-      <li className="entry correct">
-        {sent}
-        <span className="wire reply">SVAR: {entry.guess?.toUpperCase()} STOP</span>
-        <span className="verdict">Rätt ord. Taxa: {entry.score} tecken.</span>
-      </li>
-    );
-  }
+
   if (entry.type === 'ai_failure') {
     return (
       <li className="entry failure">
-        {sent}
-        {entry.guess && <span className="wire reply"><s>SVAR: {entry.guess.toUpperCase()}</s> STOP</span>}
+        <span className="clue-line">{entry.clue}</span>
+        {/* The loop exhausts on wrong length as well as on unreal words, so
+            this copy must cover both without claiming which one it was. */}
         <span className="verdict">
-          Mottagaren svarade med ett ord som inte finns — sändningen ogiltig. <em>(räknas som miss)</em>
+          {entry.guess ? <><s>{entry.guess}</s> — inget giltigt svar.</> : 'AI:n gav inget giltigt svar.'}{' '}
+          <em>Räknas som miss.</em>
         </span>
       </li>
     );
   }
+
+  const correct = entry.type === 'correct';
   return (
-    <li className="entry wrong">
-      {sent}
-      <span className="wire reply">SVAR: {entry.guess?.toUpperCase()} STOP</span>
-      <span className="verdict">Fel ord.</span>
+    <li className={correct ? 'entry correct' : 'entry wrong'}>
+      <span className="clue-line">{entry.clue}</span>
+      <LetterRow word={entry.guess} tone={correct ? 'correct' : 'wrong'} length={letterCount} />
+      {correct && <span className="verdict">Rätt! {entry.score} tecken.</span>}
     </li>
   );
 }

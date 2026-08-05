@@ -1,19 +1,21 @@
 # Ledtråden
 
 Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
-spärrade ord, och telegraferar en ledtråd (**max 10 tecken**) till en mottagare
-i fjärran som aldrig sett ordet. Poängen är antalet tecken i det kortaste
-lyckade telegrammet — golfregler, lägre är bättre — med en topplista per ord.
+spärrade ord, och skriver en ledtråd (**max 10 tecken**) som ska få en AI att
+gissa ordet. Poängen är antalet tecken i den kortaste lyckade ledtråden —
+golfregler, lägre är bättre — med en topplista per ord.
 
-**Mottagaren har aldrig sett ordet.** Gissaren får bara ledtråden och antalet
-bokstäver. Det är spelets integritetsgaranti.
+**AI:n ser aldrig ordet.** Gissaren får bara ledtråden och antalet bokstäver.
+Det är spelets integritetsgaranti, och UI:t säger det rakt ut: en rätt gissning
+är bara imponerande om spelarna litar på att gissaren är blind.
 
-> Temat är ren presentation: telegramtaxan (varje tecken kostar) är samma
-> mekanik som golfpoängen, och telegrafisten som vägrar sända otillåtna
-> meddelanden är domaren — avvisat telegram = aldrig sänt = ingen taxa = inget
-> förbrukat försök. UI:t säger ärligt i finstilten att mottagaren spelas av en
-> AI — en rätt gissning är bara imponerande om spelarna litar på att gissaren
-> är blind.
+> **Designen är ett omvänt korsord.** I ett korsord skriver konstruktören
+> ledtråden och du löser den; här är rollerna ombytta — du skriver ledtråden och
+> AI:n löser. Därför visas ordet som en rad korsordsrutor, och varje gissning
+> landar i en egen rad under: rätt och fel blir två rader att jämföra i stället
+> för löptext. Temat styr formen men berättas aldrig — ingen story i copyn, bara
+> rutnätet, tidningstypografin och rak svenska. ”Ledtråd” är dessutom redan det
+> svenska korsordsordet för clue, så namnet behövde inte ändras.
 
 ## Arkitektur
 
@@ -64,7 +66,7 @@ rotationen bara en del av banken; det finns ett test för det.
 ### Övningsläge (”Slumpa ord”)
 
 En testknapp som slumpar fram ett annat ord, kört genom exakt samma pipeline men
-**registrerat ingenstans**: ingen taxa, inga förbrukade försök, ingen topplista.
+**registrerat ingenstans**: inga poäng, inga förbrukade försök, ingen topplista.
 
 Två spärrar gör att knappen inte blir ett kryphål: övningsläget vägrar spela
 **dagens** ord (annars kunde man testa ledtrådar gratis och sedan skicka den
