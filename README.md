@@ -224,6 +224,60 @@ Två designval värda att känna till:
   De hade rapporterats som AI-påhitt, vilket är värre än licensskillnaden. Båda
   paketen ligger kvar i devDependencies om valet ska omprövas.
 
+### Kurering av ordbanken
+
+Ordvalet är det som avgör om spelet är roligt, och det är den enda delen som
+inte kan lösas med en regel. Två verktyg, som mäter olika saker:
+
+**`npm run review:words`** — statisk granskning, ingen API-nyckel, några sekunder.
+För varje målord letar den upp alla ord i ordlistan som har målordet som för-
+eller efterled (`rid|vante`, `morots|sås`), plockar ut det andra ledet och visar
+vilka av dem spärrlistan faktiskt blockerar. Den listar de svagaste orden, de
+spärrlistor som täcker minst, och de starkaste orden.
+
+Vad den *inte* kan säga: om vägen fungerar. Gissaren är blind — får den ”rid”
+och ”5 bokstäver” kan den lika gärna svara *sadel* som *vante*. Verktyget hittar
+alltså **kandidater**, inte lösningar.
+
+**`npm run probe -- <ord>`** — empirisk mätning, kräver nyckel, kostar några ören.
+Den gör det som spec:en föreskrev från början: *spelar* gissaren mot ordet. En
+modell får se facit och spärrlistan (precis vad en spelare ser) och skriver sina
+tolv kortaste ledtrådar; var och en körs sedan genom hela den riktiga pipelinen
+med den blinda gissaren. Resultatet är ordets **empiriska par** — den kortaste
+ledtråd som faktiskt löste det.
+
+```
+GEMINI_API_KEY=... npm run probe -- stövel
+GEMINI_API_KEY=... npm run probe -- --bank 20
+```
+
+Så här läser man utfallet:
+
+| Kortaste lösning | Betyder |
+|---|---|
+| 2–4 tecken | **För lätt** — en billig ledtråd kommer äga topplistan |
+| 5–9 tecken | **Bra** — det finns utrymme att tävla under par |
+| inget löser | **För svår**, eller så är spärrlistan för hårt dragen |
+| 90 %+ löser | **För lätt på annat sätt** — allt fungerar, så poängen blir bara vem som skriver kortast |
+
+**Arbetsgången för ett nytt ord**
+
+1. Välj ett konkret substantiv, helst 5–6 bokstäver. Abstrakta ord (*lycka*,
+   *frihet*) ger vaga ledtrådar och godtyckliga gissningar.
+2. Skriv spärrlistan sist, inte först — kör `probe` **utan** spärrlista och se
+   vilka ledtrådar modellen faktiskt vinner med. Spärra dem. Det är mer
+   träffsäkert än att gissa vilka de uppenbara orden är.
+3. Kör `review:words` och titta på de korta oblockerade sammansättningsleden.
+   Spärra dem som också är uppenbara *beskrivningar*; låt de andra vara.
+4. Kör `probe` igen. Sikta på kortaste lösning 5–9 och lösningsgrad 40–80 %.
+5. Har ordet ett känt exempel (*vulkan* → Etna, *månad* → januari, *torn* →
+   Eiffel)? Då är det billigt löst och kommer alltid att vara det. Antingen
+   spärra exemplet uttryckligen, eller acceptera att ordet är ett lätt ord.
+
+**Vad som gör ett ord bra**: många olika sätt att beskriva det (så kreativitet
+lönar sig), inget enskilt kort ord som pekar rakt på det, och en konkret
+betydelse som en blind modell kan träffa på rätt antal bokstäver.
+
 ### Ordbank & rotation
 
 `server/words.js`: **376 ord** med handförfattade spärrlistor (Taboo-hantverket),

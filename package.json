@@ -13,7 +13,9 @@
     "build": "vite build",
     "test": "node --test \"test/*.test.js\"",
     "check:ai": "node scripts/check-ai.mjs",
-    "build:dictionary": "node --max-old-space-size=3000 scripts/build-dictionary.mjs"
+    "build:dictionary": "node --max-old-space-size=3000 scripts/build-dictionary.mjs",
+    "review:words": "node --max-old-space-size=2000 scripts/review-words.mjs",
+    "probe": "node scripts/probe-word.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
