@@ -136,9 +136,45 @@ if (opts.dry) {
 // Load .env so the key doesn't have to be pasted on every run.
 try { process.loadEnvFile('.env'); } catch { /* no .env — fall back to the environment */ }
 
-const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+/**
+ * Ask for the key rather than explaining how to create a dotfile. Writing
+ * .env by hand is the step most likely to go wrong for someone who doesn't
+ * live in a terminal — on Windows PowerShell a redirect even writes UTF-16,
+ * which parses as garbage. Only offered on a real terminal; CI keeps the
+ * plain error.
+ */
+async function askForKey() {
+  const readline = await import('node:readline/promises');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log('Ingen GEMINI_API_KEY hittades.\n');
+    console.log('Hämta en på https://aistudio.google.com/apikey (Create API key) och klistra in den här.');
+    console.log('Nyckeln syns när du klistrar in den — den skrivs bara till .env, som är gitignorerad.\n');
+    const key = (await rl.question('Nyckel: ')).trim();
+    if (!key) return null;
+
+    const save = (await rl.question('Spara i .env så du slipper klistra in den igen? [J/n] ')).trim().toLowerCase();
+    if (['', 'j', 'ja', 'y', 'yes'].includes(save)) {
+      const line = `GEMINI_API_KEY=${key}\n`;
+      // Append rather than overwrite: .env may already hold other settings.
+      fs.appendFileSync('.env', fs.existsSync('.env') ? `\n${line}` : line);
+      console.log('Sparad i .env.\n');
+    }
+    return key;
+  } catch {
+    // Ctrl+C, Ctrl+D or a closed pipe. Someone who isn't comfortable in a
+    // terminal should get a sentence, not a Node stack trace.
+    console.log('\nAvbrutet.');
+    return null;
+  } finally {
+    rl.close();
+  }
+}
+
+let apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+if (!apiKey && process.stdin.isTTY) apiKey = await askForKey();
 if (!apiKey) {
-  console.error('Sätt GEMINI_API_KEY — i .env eller i miljön:\n  GEMINI_API_KEY=... npm run probe -- stövel');
+  console.error('\nSätt GEMINI_API_KEY — i .env eller i miljön:\n  GEMINI_API_KEY=... npm run probe -- stövel');
   console.error('\nKör med --dry för att se omfattningen utan nyckel.');
   process.exit(2);
 }

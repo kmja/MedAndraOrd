@@ -246,7 +246,8 @@ tolv kortaste ledtrådar; var och en körs sedan genom hela den riktiga pipeline
 med den blinda gissaren. Resultatet är ordets **empiriska par** — den kortaste
 ledtråd som faktiskt löste det.
 
-Lägg nyckeln i `.env` en gång, sedan räcker ordet:
+Har du ingen nyckel i `.env` frågar skriptet efter den första gången och
+erbjuder sig att spara den. Sedan räcker ordet:
 
 ```
 npm run probe -- stövel                 ett ord ur banken

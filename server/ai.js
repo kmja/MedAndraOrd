@@ -118,27 +118,7 @@ const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
  * and checking them in code, which is free and deterministic.
  */
 export async function guardedGuesser({ clue, letterCount, feedback = [] }) {
-  const system = `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
-
-STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
-1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. paraply, jobb, tv) är tillåtna.
-2. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller ljud i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
-3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "skit" för att leda till skitstövel, "arbets" för att leda till arbetsdag). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
-
-Viktigt: sammansättningar som *beskriver* saken är fortfarande TILLÅTNA. "kaninmat" som ledtråd till morot beskriver vad en morot är för en kanin — det är bra. "kaffe" som ledtråd till kopp beskriver vad koppen används till — också bra. Det är bara ordled utan egen beskrivande kraft som stoppas.
-
-Lika viktigt: **egennamn och kända exempel på kategorin är TILLÅTNA** — "etna" för vulkan, "eiffel" för torn, "nilen" för flod. Regel 1 gäller inte namn: ett egennamn får ha utländskt ursprung, för det är referensen som bär betydelsen, inte språket. Att veta att Etna är en vulkan är just den sortens kunskap spelet efterfrågar. (Ett namn som råkar *vara* målordet på ett annat språk är däremot fortfarande en översättning och otillåtet.)
-
-Detsamma gäller **förkortade** exempel: "jan" och "feb" som ledtrådar till månad är samma drag som "etna", och ska bedömas lika. Förkortningar är inte förbjudna. Det går ändå inte att veta om "jan" är tänkt som januari eller som ett namn, och en regel som inte går att tillämpa konsekvent gör mer skada än nytta — samma ledtråd måste få samma dom varje gång.
-
-Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder och kreativa omskrivningar är TILLÅTNA så länge de är på svenska och beskriver betydelse. Avvisa bara det som klart bryter mot 1–3.
-
-STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt ${letterCount} bokstäver. Hitta inte på ord.
-
-Svara ENDAST med JSON:
-{"legal": true, "guess": "ordet"}
-eller
-{"legal": false, "reason": "kort motivering på svenska"}`;
+  const system = guesserSystemPrompt(letterCount);
 
   const contents = [
     userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.`),
@@ -155,6 +135,44 @@ eller
     console.error('guardedGuesser failed:', err.message);
     return null; // fail open
   }
+}
+
+/**
+ * The guesser's system prompt. Exported so it can be asserted against.
+ *
+ * One property matters enough to be a test: no word from the bank may appear
+ * here. The guesser is blind, but this text is in its context on every call,
+ * and a target named here — even as an example of a *rule* — is a target the
+ * model can reach for on a vague clue. That would make those words quietly
+ * easier than the rest of the bank, for a reason with nothing to do with the
+ * clue. Every illustration below therefore uses words that are not targets.
+ */
+export function guesserSystemPrompt(letterCount) {
+  return `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
+
+Spelet går ut på att säga så mycket som möjligt med så få tecken som möjligt, och spelarna tävlar om att vara kortast. Därför är ledtrådarna sällan raka definitioner. Räkna med det motsatta: omskrivningar, oväntade bilder, egna påhittade sammansättningar, sneda infallsvinklar och kluriga associationer — ungefär som ledtrådarna i ett kryptiskt korsord. Att spelaren tänker utanför boxen är meningen med spelet, inte ett problem.
+
+STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
+1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. kex, jobb, tv) är tillåtna.
+2. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller uttal i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
+3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "gräv" för att leda till grävskopa). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
+
+Viktigt: sammansättningar som *beskriver* saken är fortfarande TILLÅTNA. "tandpinne" som ledtråd till tandborste beskriver vad saken är — det är bra. "blomvatten" som ledtråd till vas beskriver vad den används till — också bra. Det är bara ordled utan egen beskrivande kraft som stoppas.
+
+Lika viktigt: **egennamn och kända exempel på kategorin är TILLÅTNA** — "nilen" för flod, "kreml" för fästning. Regel 1 gäller inte namn: ett egennamn får ha utländskt ursprung, för det är referensen som bär betydelsen, inte språket. Att veta vad Nilen är är just den sortens kunskap spelet efterfrågar. (Ett namn som råkar *vara* målordet på ett annat språk är däremot fortfarande en översättning och otillåtet.)
+
+Detsamma gäller **förkortade** exempel: "sept" och "okt" är samma drag som "nilen", och ska bedömas lika. Förkortningar är inte förbjudna. Det går ändå inte att veta om "jan" är tänkt som en förkortning eller som ett namn, och en regel som inte går att tillämpa konsekvent gör mer skada än nytta — samma ledtråd måste få samma dom varje gång.
+
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–3.
+
+STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt ${letterCount} bokstäver. Hitta inte på ord.
+
+Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.
+
+Svara ENDAST med JSON:
+{"legal": true, "guess": "ordet"}
+eller
+{"legal": false, "reason": "kort motivering på svenska"}`;
 }
 
 // Two corrections, both about the guess breaking its own rules: wrong length
