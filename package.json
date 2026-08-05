@@ -1,7 +1,7 @@
 {
   "name": "ordknapp",
   "version": "1.0.0",
-  "description": "Ordknapp \u2014 daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
+  "description": "Ordknapp — daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
   "type": "module",
   "engines": {
     "node": ">=18"
@@ -15,7 +15,8 @@
     "check:ai": "node scripts/check-ai.mjs",
     "build:dictionary": "node --max-old-space-size=3000 scripts/build-dictionary.mjs",
     "review:words": "node --max-old-space-size=2000 scripts/review-words.mjs",
-    "probe": "node scripts/probe-word.mjs"
+    "probe": "node scripts/probe-word.mjs",
+    "limits": "node scripts/apply-limits.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",

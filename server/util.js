@@ -9,8 +9,54 @@
 // supplies the pressure to be short, so the cap can be generous without
 // making the leaderboard soft: an 18-character solve is a solve, and it will
 // sit at the bottom of the board where it belongs.
-export const PAR_CLUE_LENGTH = 10;
 export const MAX_CLUE_LENGTH = 18;
+
+// A per-word limit needs bounds, because it is derived from measurements and
+// measurements go wrong. CLUE_LIMIT_CEILING is the real abuse stop; the floor
+// keeps a freak run of very short solves from producing a limit nobody can
+// write inside.
+export const CLUE_LIMIT_FLOOR = 8;
+export const CLUE_LIMIT_CEILING = 24;
+
+/**
+ * How many characters this word allows.
+ *
+ * One global cap is wrong in both directions: it strangles a word whose only
+ * routes are long, and leaves an easy word wide open. So a word may carry its
+ * own `limit`, measured by the probe (see scripts/probe-word.mjs) rather than
+ * guessed. Words without one fall back to the global default, which is what
+ * every word does until it has been probed.
+ */
+export function clueLimitFor(entry) {
+  const limit = entry?.limit;
+  if (!Number.isInteger(limit)) return MAX_CLUE_LENGTH;
+  return Math.min(CLUE_LIMIT_CEILING, Math.max(CLUE_LIMIT_FLOOR, limit));
+}
+
+/**
+ * Turn a word's probe results into a character limit.
+ *
+ * The basis is the mean length of the clues that ACTUALLY SOLVED it, plus a
+ * margin — not the mean of everything proposed, which would be dragged around
+ * by clues that were rejected or missed and never told us anything about how
+ * long a working clue has to be.
+ *
+ * The margin exists because the probe is a sample, not a census: a human will
+ * find routes the model didn't, and some of them will be a little longer. The
+ * floor of `shortest + 4` is the same worry in sharper form — with only one or
+ * two solves the mean is nearly the shortest solve, and a limit that lands on
+ * top of it leaves no room to solve the word any other way.
+ */
+export function suggestedLimit(solvedLengths, { margin = 0.2 } = {}) {
+  const lengths = (solvedLengths ?? []).filter((n) => Number.isFinite(n) && n > 0);
+  if (!lengths.length) return null; // nothing solved it — no evidence to work from
+
+  const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+  const shortest = Math.min(...lengths);
+  const raw = Math.round(mean * (1 + margin));
+
+  return Math.min(CLUE_LIMIT_CEILING, Math.max(CLUE_LIMIT_FLOOR, shortest + 4, raw));
+}
 
 /** Lowercase + unicode-normalize + collapse whitespace. Keeps å/ä/ö intact. */
 export function normalize(s) {
@@ -107,17 +153,17 @@ const FRAGMENT_RE = /(\.{2,}|…|^-|-$|^\s*-|-\s*$)/;
  * Returns null if the clue passes, otherwise { code, reason } (reason in Swedish,
  * shown to the player). Rejections here cost no attempt, like referee rejections.
  */
-export function checkClueCode(clue, target, forbidden) {
+export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH) {
   const raw = String(clue ?? '');
   const n = normalize(raw);
 
   if (n.length === 0) {
     return { code: 'empty', reason: 'Ledtråden är tom.' };
   }
-  if (clueLength(raw) > MAX_CLUE_LENGTH) {
+  if (clueLength(raw) > maxLength) {
     return {
       code: 'too_long',
-      reason: `Ledtråden får vara högst ${MAX_CLUE_LENGTH} tecken (mellanslag räknas inte).`,
+      reason: `Ledtråden får vara högst ${maxLength} tecken (mellanslag räknas inte).`,
     };
   }
   if (EMOJI_RE.test(raw)) {

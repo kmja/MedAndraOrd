@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { getStore } from './store.js';
 import { wordForDate, wordByIndex, randomWord, WORDS } from './words.js';
 import { judgeClue, costsAttempt, isCacheableVerdict, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
-import { normalize, todayInStockholm, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH } from './util.js';
+import { normalize, todayInStockholm, clueLimitFor } from './util.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
 // both Express and Vercel functions provide. Keeping them here means there is
@@ -81,7 +81,8 @@ export async function stateHandler(req, res) {
   const store = getStore();
   const pid = getPlayerId(req, res);
   const date = todayInStockholm();
-  const { word, forbidden, letterCount } = wordForDate(date);
+  const today = wordForDate(date);
+  const { word, forbidden, letterCount } = today;
 
   const [attempts, best, standing, dayStats] = await Promise.all([
     store.getAttempts(date, pid),
@@ -99,8 +100,7 @@ export async function stateHandler(req, res) {
     word,
     forbidden,
     letterCount,
-    maxClueLength: MAX_CLUE_LENGTH,
-    par: PAR_CLUE_LENGTH,
+    maxClueLength: clueLimitFor(today),
     maxAttempts: MAX_ATTEMPTS,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
     best,
@@ -123,8 +123,7 @@ export async function randomHandler(req, res) {
     word: entry.word,
     forbidden: entry.forbidden,
     letterCount: entry.letterCount,
-    maxClueLength: MAX_CLUE_LENGTH,
-    par: PAR_CLUE_LENGTH,
+    maxClueLength: clueLimitFor(entry),
   });
 }
 
@@ -156,7 +155,9 @@ export async function clueHandler(req, res) {
     let verdict = practiceCache.get(key);
     if (!verdict) {
       try {
-        verdict = await judgeClue({ clue, target: entry.word, forbidden: entry.forbidden });
+        verdict = await judgeClue({
+          clue, target: entry.word, forbidden: entry.forbidden, maxLength: clueLimitFor(entry),
+        });
       } catch (err) {
         if (err instanceof AiUnavailableError) {
           return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund.' });
@@ -184,7 +185,7 @@ export async function clueHandler(req, res) {
   if (!verdict) {
     cached = false;
     try {
-      verdict = await judgeClue({ clue, target: word, forbidden });
+      verdict = await judgeClue({ clue, target: word, forbidden, maxLength: clueLimitFor(today) });
     } catch (err) {
       if (err instanceof AiUnavailableError) {
         return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund — inget försök förbrukades.' });

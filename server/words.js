@@ -394,7 +394,16 @@ export const WORDS = [
 export function wordByIndex(idx) {
   const entry = WORDS[idx];
   if (!entry) return null;
-  return { index: idx, word: entry.word, forbidden: entry.forbidden, letterCount: letterCount(entry.word) };
+  return {
+    index: idx,
+    word: entry.word,
+    forbidden: entry.forbidden,
+    letterCount: letterCount(entry.word),
+    // Optional, and absent for every word that hasn't been probed yet —
+    // clueLimitFor() falls back to the global default. Carried through here so
+    // callers never have to reach back into WORDS for it.
+    limit: entry.limit,
+  };
 }
 
 /**

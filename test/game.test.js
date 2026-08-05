@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
-  dayNumber, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH,
+  dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING,
+  clueLimitFor, suggestedLimit,
   letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
@@ -41,16 +42,65 @@ test('checkClueCode: valid clue passes', () => {
   assert.equal(checkClueCode('kaninmat', 'morot', ['grönsak', 'orange']), null);
 });
 
-test('par is the tight target; the cap is only a backstop', () => {
-  // Golf scoring supplies the pressure to be short, so the cap exists to bound
-  // cost and stop pasted essays — not to gate difficulty.
-  assert.equal(PAR_CLUE_LENGTH, 10);
-  assert.ok(MAX_CLUE_LENGTH > PAR_CLUE_LENGTH, 'the cap must leave room above par');
+test('the default limit sits inside the per-word bounds', () => {
+  // Every unprobed word gets MAX_CLUE_LENGTH, so it has to be a value the
+  // per-word machinery would also accept — otherwise probing a word could
+  // move its limit somewhere the default never could.
+  assert.ok(MAX_CLUE_LENGTH >= CLUE_LIMIT_FLOOR && MAX_CLUE_LENGTH <= CLUE_LIMIT_CEILING);
+});
+
+test('clueLimitFor falls back to the default and clamps anything odd', () => {
+  assert.equal(clueLimitFor(undefined), MAX_CLUE_LENGTH);
+  assert.equal(clueLimitFor({}), MAX_CLUE_LENGTH, 'an unprobed word uses the default');
+  assert.equal(clueLimitFor({ limit: 12 }), 12);
+  // A limit is derived from measurements, and measurements go wrong. Bounds
+  // mean a bad number produces a tight or generous word, never an unplayable
+  // one.
+  assert.equal(clueLimitFor({ limit: 1 }), CLUE_LIMIT_FLOOR);
+  assert.equal(clueLimitFor({ limit: 999 }), CLUE_LIMIT_CEILING);
+  for (const bad of [null, '12', 12.5, NaN]) {
+    assert.equal(clueLimitFor({ limit: bad }), MAX_CLUE_LENGTH, `expected fallback for ${bad}`);
+  }
+});
+
+test('suggestedLimit leaves room above the shortest solve', () => {
+  // With one or two solves the mean is nearly the shortest solve, and a limit
+  // landing on top of it would leave no room to solve the word any other way.
+  assert.equal(suggestedLimit([15]), 19, 'a single solve still gets headroom');
+  assert.equal(suggestedLimit([5, 6]), 9);
+  // With a spread, the mean does the work and an outlier does not drag it up.
+  assert.equal(suggestedLimit([5, 6, 7, 20]), 11);
+  assert.equal(suggestedLimit([14, 16, 18]), 19);
+});
+
+test('suggestedLimit returns null when nothing solved the word', () => {
+  // No solve means no evidence. Inventing a limit from an empty sample would
+  // be worse than leaving the word on the default.
+  assert.equal(suggestedLimit([]), null);
+  assert.equal(suggestedLimit(undefined), null);
+  assert.equal(suggestedLimit([0, NaN, -3]), null);
+});
+
+test('suggestedLimit stays inside the bounds', () => {
+  assert.equal(suggestedLimit([2]), CLUE_LIMIT_FLOOR);
+  assert.equal(suggestedLimit([23, 24]), CLUE_LIMIT_CEILING);
 });
 
 test('checkClueCode rejects clues over the limit but allows exactly the limit', () => {
   assert.equal(checkClueCode('a'.repeat(MAX_CLUE_LENGTH + 1), 'morot', []).code, 'too_long');
   assert.equal(checkClueCode('a'.repeat(MAX_CLUE_LENGTH), 'morot', []), null);
+});
+
+test('checkClueCode honours a per-word limit and says which one applied', () => {
+  // The reason is shown to the player, so it has to quote the limit that was
+  // actually enforced — a message naming the global default under a tighter
+  // word would read as a bug.
+  const verdict = checkClueCode('a'.repeat(11), 'morot', [], 10);
+  assert.equal(verdict.code, 'too_long');
+  assert.match(verdict.reason, /högst 10 tecken/);
+  assert.equal(checkClueCode('a'.repeat(10), 'morot', [], 10), null);
+  // A looser word accepts what the default would have refused.
+  assert.equal(checkClueCode('a'.repeat(MAX_CLUE_LENGTH + 2), 'morot', [], 22), null);
 });
 
 test('the limit counts unicode chars, so å/ä/ö cost the same as a/o', () => {
@@ -59,12 +109,26 @@ test('the limit counts unicode chars, so å/ä/ö cost the same as a/o', () => {
   assert.equal(checkClueCode(atCap + 'å', 'morot', []).code, 'too_long');
 });
 
-test('a clue above par is legal — it just scores worse', async () => {
+test('a long clue is legal — it just scores worse', async () => {
+  // The limit is a backstop, not a difficulty gate. Anything under it counts
+  // in full and simply lands further down the board.
   const ai = mockAi({ guesses: ['morot'] });
-  const long = 'a'.repeat(PAR_CLUE_LENGTH + 5);
+  const long = 'a'.repeat(MAX_CLUE_LENGTH - 1);
   const v = await judgeClue({ clue: long, target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'correct');
-  assert.equal(v.score, PAR_CLUE_LENGTH + 5);
+  assert.equal(v.score, MAX_CLUE_LENGTH - 1);
+});
+
+test('judgeClue enforces the per-word limit it is given', async () => {
+  // The limit travels with the call, so a tight word must refuse a clue that
+  // a default word would accept — and refuse it in code, before paying for a
+  // model call.
+  let called = false;
+  const ai = { guardedGuesser: async () => { called = true; return { legal: true, guess: 'morot' }; } };
+  const v = await judgeClue({ clue: 'a'.repeat(12), target: 'morot', forbidden: [], maxLength: 10, ai });
+  assert.equal(v.type, 'rejected');
+  assert.equal(v.source, 'code');
+  assert.equal(called, false, 'a too-long clue must never reach the model');
 });
 
 test('checkClueCode rejects a fill-in-the-blank fragment', () => {

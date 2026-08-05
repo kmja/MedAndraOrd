@@ -401,10 +401,10 @@ button.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--ink);
   transform: translateX(-50%);
   font-size: 0.66rem; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
 }
-.mark-par b { top: 17px; }
+.mark-record b { top: 17px; }
 .mark-avg b { top: 29px; }
-.mark-par { border-color: var(--correct); }
-.mark-par b { color: var(--correct); }
+.mark-record { border-color: var(--correct); }
+.mark-record b { color: var(--correct); }
 .mark-avg { border-color: var(--muted); }
 .mark-avg b { color: var(--muted); }
 

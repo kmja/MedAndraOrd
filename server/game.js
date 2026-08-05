@@ -93,9 +93,10 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, ai }) {
  *   { type: 'wrong',    guess }
  *   { type: 'ai_failure', guess }   // struck through in UI, counts as miss
  */
-export async function judgeClue({ clue, target, forbidden, ai = defaultAi }) {
-  // 1. Deterministic checks — free, before any API call.
-  const codeVerdict = checkClueCode(clue, target, forbidden);
+export async function judgeClue({ clue, target, forbidden, maxLength, ai = defaultAi }) {
+  // 1. Deterministic checks — free, before any API call. The length limit is
+  // per word (see clueLimitFor), so it has to travel with the call.
+  const codeVerdict = checkClueCode(clue, target, forbidden, maxLength);
   if (codeVerdict) {
     return { type: 'rejected', reason: codeVerdict.reason, source: 'code' };
   }

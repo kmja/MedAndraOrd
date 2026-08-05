@@ -149,7 +149,7 @@ Deterministiska kontroller i kod (`server/util.js`):
 - Uppenbara ifyllnadsledtrådar: ellips eller hängande bindestreck (”skit…”).
 - Målord/förbjudna ord som (normaliserad) delsträng i ledtråden.
 
-### Par och tak
+### Teckengräns per ord
 
 Två tal, med olika jobb:
 

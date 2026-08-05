@@ -48,11 +48,19 @@ function standingText(standing) {
 }
 
 /**
- * The length meter: one segment per character, with the day's average and par
- * marked on it. The point is that you are racing the field and the target,
- * not the hard cap — the cap is just the end of the track.
+ * The length meter: one segment per character, with two live marks on it —
+ * where the field is, and where the best clue of the day sits.
+ *
+ * Both are things to race. A fixed "par" mark used to sit here instead of the
+ * record, but a constant is a weaker target than the actual score to beat, and
+ * with the limit now set per word there is no single number that means the
+ * same thing across the bank.
+ *
+ * The marks are labelled but not numbered: the exact figures are on the board
+ * and in the counter, and repeating them here made a 10px strip carry three
+ * numbers that had to be read to be understood.
  */
-function LengthMeter({ length, max, par, average }) {
+function LengthMeter({ length, max, average, record }) {
   const pctOf = (n) => `${Math.min(100, (n / max) * 100)}%`;
   const over = length > max;
   return (
@@ -61,14 +69,14 @@ function LengthMeter({ length, max, par, average }) {
         {Array.from({ length: max }, (_, i) => (
           <span key={i} className={i < length ? 'seg on' : 'seg'} />
         ))}
-        {par > 0 && par <= max && (
-          <span className="mark mark-par" style={{ left: pctOf(par) }}>
-            <b>bonus</b>
+        {record != null && record <= max && (
+          <span className="mark mark-record" style={{ left: pctOf(record) }}>
+            <b>rekord</b>
           </span>
         )}
         {average != null && average <= max && (
           <span className="mark mark-avg" style={{ left: pctOf(average) }}>
-            <b>snitt {Math.round(average)}</b>
+            <b>snitt</b>
           </span>
         )}
       </div>
@@ -350,6 +358,10 @@ export default function App() {
   const tooLong = clueLen > state.maxClueLength;
   const attempts = history.filter(isAttempt);
   const solved = attempts.some((h) => h.type === 'correct');
+  // The score to beat. Row 1 is rank 1, so its score is the day's best. Scores
+  // are public even while the clues are hidden — the board already prints them
+  // — so marking it gives nothing away that isn't on screen already.
+  const dayRecord = state.leaderboard?.[0]?.score ?? null;
   const canPlay = !outOfAttempts && !busy && settling === null;
   // Once the word is solved the round is over. Writing another clue is opt-in,
   // via the dialog or the solved panel.
@@ -522,8 +534,8 @@ export default function App() {
           <LengthMeter
             length={clueLen}
             max={state.maxClueLength}
-            par={state.par}
             average={practice ? null : state.dayAverage}
+            record={practice ? null : dayRecord}
           />
         </form>
         )}
@@ -619,10 +631,10 @@ export default function App() {
           <summary>Regler</summary>
           <ul>
             <li>
-              Sikta på <strong>par {state.par} tecken</strong>. Längre ledtrådar är tillåtna
-              upp till {state.maxClueLength} tecken — de räknas fullt ut, men hamnar längre
-              ner på topplistan. Mellanslag räknas inte.
+              Högst <strong>{state.maxClueLength} tecken</strong>. Gränsen sätts per ord —
+              svårare ord får mer utrymme — och mellanslag räknas inte.
             </li>
+            <li>Kortast vinner. Sikta under dagens snitt, och gå på rekordet om du kan.</li>
             <li>Svenska ord. Inga bokstaverings- eller rimtrick.</li>
             <li>
               Beskriv ordet — peka inte bara ut det. Ett ordled som ska fyllas i

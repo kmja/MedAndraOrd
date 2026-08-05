@@ -43,9 +43,9 @@ import path from 'node:path';
 import { GoogleGenAI } from '@google/genai';
 
 import { WORDS, wordByIndex } from '../server/words.js';
-import { judgeClue } from '../server/game.js';
+import { judgeClue, AiUnavailableError } from '../server/game.js';
 import { isSwedishWord } from '../server/dictionary.js';
-import { clueLength, letterCount, normalize, MAX_CLUE_LENGTH } from '../server/util.js';
+import { clueLength, letterCount, normalize, suggestedLimit, clueLimitFor, CLUE_LIMIT_CEILING } from '../server/util.js';
 
 // ---------------------------------------------------------------------------
 // arguments
@@ -172,7 +172,14 @@ async function askForKey() {
 }
 
 let apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-if (!apiKey && process.stdin.isTTY) apiKey = await askForKey();
+if (!apiKey && process.stdin.isTTY) {
+  apiKey = await askForKey();
+  // Back into the environment, not just into this file's client. server/ai.js
+  // builds its own client from process.env, so a key that only lived here left
+  // the guesser unauthenticated — it fell through to Google's default
+  // credentials and every guess failed, while the proposal call worked fine.
+  if (apiKey) process.env.GEMINI_API_KEY = apiKey;
+}
 if (!apiKey) {
   console.error('\nSätt GEMINI_API_KEY — i .env eller i miljön:\n  GEMINI_API_KEY=... npm run probe -- stövel');
   console.error('\nKör med --dry för att se omfattningen utan nyckel.');
@@ -207,7 +214,7 @@ Spärrade ord: ${forbidden.join(', ') || '(inga)'}`;
   if (!m) return [];
   try {
     return (JSON.parse(m[0]).clues ?? [])
-      .filter((c) => typeof c === 'string' && clueLength(c) > 0 && clueLength(c) <= MAX_CLUE_LENGTH);
+      .filter((c) => typeof c === 'string' && clueLength(c) > 0 && clueLength(c) <= CLUE_LIMIT_CEILING);
   } catch {
     return [];
   }
@@ -349,19 +356,40 @@ function printDelta(word, prev, now) {
 async function probe(entry) {
   const clues = await proposeClues(entry);
   const results = [];
+  let unavailable = 0;
+
   for (const clue of clues) {
-    const verdict = await judgeClue({ clue, target: entry.word, forbidden: entry.forbidden });
-    results.push({ clue, len: clueLength(clue), type: verdict.type, guess: verdict.guess, reason: verdict.reason });
+    try {
+      // Measured against the ceiling, not the word's current limit. Probing
+      // inside the existing limit would only ever confirm it: clues longer than
+      // the setting would be rejected unread, so the evidence could never argue
+      // for raising it. The suggestion has to see the whole space.
+      const verdict = await judgeClue({
+        clue, target: entry.word, forbidden: entry.forbidden, maxLength: CLUE_LIMIT_CEILING,
+      });
+      results.push({ clue, len: clueLength(clue), type: verdict.type, guess: verdict.guess, reason: verdict.reason });
+    } catch (err) {
+      // A run is a measurement, and losing every earlier clue because the last
+      // one timed out would be the worst possible way to spend the calls. Note
+      // it, keep going, and say so in the summary — a rate computed from a run
+      // that half-failed must not read as a finding.
+      if (!(err instanceof AiUnavailableError)) throw err;
+      unavailable++;
+      results.push({ clue, len: clueLength(clue), type: 'ai_unavailable', guess: null });
+    }
   }
-  const solved = results.filter((r) => r.type === 'correct').sort((a, b) => a.len - b.len);
-  const rate = results.length ? Math.round((solved.length / results.length) * 100) : 0;
+
+  // Only clues the model actually answered can say anything about the word.
+  const answered = results.filter((r) => r.type !== 'ai_unavailable');
+  const solved = answered.filter((r) => r.type === 'correct').sort((a, b) => a.len - b.len);
+  const rate = answered.length ? Math.round((solved.length / answered.length) * 100) : 0;
   const shortest = solved[0] ?? null;
   const verdict = !shortest
     ? 'FÖR SVÅR'
     : shortest.len <= 4 ? 'FÖR LÄTT'
     : rate >= 90 ? 'FÖR LÄTT (allt löser)'
     : 'BRA';
-  return { entry, results, solved, shortest, rate, verdict, routes: routes(solved, entry.forbidden) };
+  return { entry, results, solved, shortest, rate, verdict, unavailable, answered: answered.length, routes: routes(solved, entry.forbidden) };
 }
 
 const e = estimate(targets.length);
@@ -388,6 +416,9 @@ for (const entry of targets) {
     shortestClue: r.shortest?.clue ?? null,
     rate: r.rate,
     verdict: r.verdict,
+    unavailable: r.unavailable,
+    currentLimit: clueLimitFor(entry),
+    suggestedLimit: suggestedLimit(r.solved.map((s) => s.len)),
     solved: r.solved.map((s) => ({ clue: s.clue, len: s.len })),
     rejected: r.results.filter((x) => x.type === 'rejected').map((x) => ({ clue: x.clue, reason: x.reason })),
     missed: r.results.filter((x) => x.type === 'wrong').map((x) => ({ clue: x.clue, guess: x.guess })),
@@ -398,11 +429,17 @@ for (const entry of targets) {
 
   console.log(`${entry.word.toUpperCase()} (${letterCount(entry.word)} bokstäver)${entry.index < 0 ? '  [utanför banken]' : ''}`);
   console.log(`  spärrat: ${entry.forbidden.join(', ') || '(inget)'}`);
-  console.log(`  ${r.solved.length}/${r.results.length} löste ordet · kortaste ${r.shortest ? `"${r.shortest.clue}" (${r.shortest.len})` : '—'} · ${r.verdict}`);
+  console.log(`  ${r.solved.length}/${r.answered} löste ordet · kortaste ${r.shortest ? `"${r.shortest.clue}" (${r.shortest.len})` : '—'} · ${r.verdict}`);
+  if (r.unavailable) {
+    console.log(`  ⚠ ${r.unavailable} av ${r.results.length} ledtrådar fick inget svar från AI:n — siffrorna ovan bygger på resten.`);
+  }
   console.log();
   for (const x of r.results) {
-    const mark = x.type === 'correct' ? '✓' : x.type === 'rejected' ? '⊘' : '·';
-    const tail = x.type === 'correct' ? '' : x.type === 'rejected' ? `⊘ ${x.reason ?? ''}` : `→ ${x.guess ?? x.type}`;
+    const mark = x.type === 'correct' ? '✓' : x.type === 'rejected' ? '⊘' : x.type === 'ai_unavailable' ? '⚠' : '·';
+    const tail = x.type === 'correct' ? ''
+      : x.type === 'rejected' ? `⊘ ${x.reason ?? ''}`
+      : x.type === 'ai_unavailable' ? '⚠ inget svar från AI:n'
+      : `→ ${x.guess ?? x.type}`;
     console.log(`    ${mark} ${String(x.len).padStart(2)}  ${x.clue.padEnd(22)} ${tail}`);
   }
   if (r.routes.length) {
@@ -411,6 +448,11 @@ for (const entry of targets) {
       console.log(`    ${rt.element.padEnd(16)} ${rt.count} lösningar, kortaste ${rt.shortest} tecken`);
     }
     console.log(`    Spärra den billigaste vägen först och kör om — spärrar man alla blir ordet olösligt, inte svårt.`);
+  }
+  if (record.suggestedLimit != null) {
+    const same = record.suggestedLimit === record.currentLimit;
+    console.log(`\n  TECKENGRÄNS  nu ${record.currentLimit} · föreslagen ${record.suggestedLimit}` +
+      (same ? '  (oförändrad)' : '  — sätt limit i server/words.js, eller kör npm run limits'));
   }
   printDelta(entry.word, prev, record);
   console.log();
