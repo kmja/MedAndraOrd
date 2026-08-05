@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { normalize, compareClues, clueLength } from './util.js';
+
 // Storage has three backends behind one interface, chosen by environment:
 //
 //   KvStore     — Redis over the Upstash REST protocol (Vercel KV, Upstash).
@@ -14,16 +16,53 @@ import path from 'node:path';
 const LEADERBOARD_LIMIT = 20;
 
 /**
- * Competition ranking over an already-sorted list: equal scores share a rank
- * (1, 2, 2, 4). Must match standing(), or a player's stated placing would
- * disagree with the row they are standing on.
+ * The board is a list of clues, not of people: everyone who submitted the same
+ * clue shares one row. Grouping happens on the normalized clue, so casing and
+ * spacing differences don't split a row that players would read as identical.
+ *
+ * Ranks are competition ranks over the full tiebreak chain (see compareClues),
+ * so two genuinely equal clues share a place and the next one skips.
  */
-function withRanks(rows) {
+function groupAndRank(entries, { reveal, viewerPid }) {
+  const groups = new Map();
+  for (const { pid, score, clue } of entries) {
+    // A player with no recorded clue can't be grouped with anyone; give them
+    // their own bucket rather than merging unrelated players under "unknown".
+    const key = clue ? normalize(clue) : `\u0000${pid}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { clue: clue ?? null, score, count: 0, names: [], you: false };
+      groups.set(key, g);
+    }
+    g.count += 1;
+    if (pid === viewerPid) g.you = true;
+    g.names.push(pid);
+  }
+
+  const rows = [...groups.values()].sort((a, b) => {
+    if (a.clue && b.clue) return compareClues(a.clue, b.clue);
+    return a.score - b.score; // fall back when a clue is missing
+  });
+
   let rank = 0;
   let prev = null;
-  return rows.map((row, i) => {
-    if (row.score !== prev) { rank = i + 1; prev = row.score; }
-    return { rank, ...row };
+  return rows.slice(0, LEADERBOARD_LIMIT).map((row, i) => {
+    // Tie on the full chain when both clues are known; otherwise fall back to
+    // the score, matching standing()'s fallback so the two never disagree.
+    const same = Boolean(prev) && (
+      row.clue && prev.clue
+        ? compareClues(row.clue, prev.clue) === 0
+        : row.score === prev.score
+    );
+    if (!same) { rank = i + 1; prev = row; }
+    return {
+      rank,
+      score: row.score,
+      count: row.count,
+      you: row.you,
+      pids: row.names,
+      ...(reveal ? { clue: row.clue } : {}),
+    };
   });
 }
 
@@ -84,17 +123,14 @@ class MemoryStore {
   async leaderboard(date, viewerPid, reveal = false) {
     const day = this.bests.get(date);
     if (!day) return [];
-    const rows = [...day.entries()]
-      .sort((a, b) => a[1].score - b[1].score)
-      .slice(0, LEADERBOARD_LIMIT);
-    return withRanks(
-      rows.map(([pid, best]) => ({
-        score: best.score,
-        name: this.names.get(pid) || 'Anonym',
-        you: pid === viewerPid,
-        ...(reveal ? { clue: best.clue ?? null } : {}),
-      })),
+    const rows = groupAndRank(
+      [...day.entries()].map(([pid, best]) => ({ pid, score: best.score, clue: best.clue })),
+      { reveal, viewerPid },
     );
+    return rows.map(({ pids, ...row }) => ({
+      ...row,
+      name: pids.length === 1 ? this.names.get(pids[0]) || 'Anonym' : null,
+    }));
   }
 
   /**
@@ -107,8 +143,15 @@ class MemoryStore {
     const day = this.bests.get(date);
     const mine = day?.get(pid);
     if (mine == null) return null;
+    // Ranked on the same chain the board uses, so a player's stated placing
+    // never contradicts the row they are standing on.
     let better = 0;
-    for (const best of day.values()) if (best.score < mine.score) better++;
+    for (const best of day.values()) {
+      const ahead = mine.clue && best.clue
+        ? compareClues(best.clue, mine.clue) < 0
+        : best.score < mine.score;
+      if (ahead) better++;
+    }
     return { rank: better + 1, total: day.size };
   }
 
@@ -258,23 +301,30 @@ class KvStore {
   }
 
   /** See MemoryStore.leaderboard for why `reveal` exists. */
+  /**
+   * Reads the whole day, because grouping and the tiebreak chain need every
+   * clue — the top 20 rows can't be known from scores alone. Same O(solvers)
+   * cost as dayStats; fine at this scale, and the place to add a cache first.
+   */
   async leaderboard(date, viewerPid, reveal = false) {
-    const flat = await this._cmd('ZRANGE', `best:${date}`, '0', String(LEADERBOARD_LIMIT - 1), 'WITHSCORES');
+    const flat = await this._cmd('ZRANGE', `best:${date}`, '0', '-1', 'WITHSCORES');
     if (!Array.isArray(flat) || flat.length === 0) return [];
-    const rows = [];
-    for (let i = 0; i < flat.length; i += 2) rows.push({ pid: flat[i], score: Number(flat[i + 1]) });
-    const [names, clues] = await Promise.all([
-      this._cmd('MGET', ...rows.map((r) => `name:${r.pid}`)),
-      reveal ? this._cmd('HMGET', `bestclue:${date}`, ...rows.map((r) => r.pid)) : Promise.resolve(null),
-    ]);
-    return withRanks(
-      rows.map((r, i) => ({
-        score: r.score,
-        name: names[i] || 'Anonym',
-        you: r.pid === viewerPid,
-        ...(reveal ? { clue: clues?.[i] ?? null } : {}),
-      })),
-    );
+    const entries = [];
+    for (let i = 0; i < flat.length; i += 2) entries.push({ pid: flat[i], score: Number(flat[i + 1]) });
+
+    const clues = await this._cmd('HMGET', `bestclue:${date}`, ...entries.map((e) => e.pid));
+    entries.forEach((e, i) => { e.clue = clues?.[i] ?? null; });
+
+    const rows = groupAndRank(entries, { reveal, viewerPid });
+    const solo = rows.filter((r) => r.pids.length === 1);
+    const names = solo.length
+      ? await this._cmd('MGET', ...solo.map((r) => `name:${r.pids[0]}`))
+      : [];
+    const nameByPid = new Map(solo.map((r, i) => [r.pids[0], names[i] || 'Anonym']));
+    return rows.map(({ pids, ...row }) => ({
+      ...row,
+      name: pids.length === 1 ? nameByPid.get(pids[0]) : null,
+    }));
   }
 
   /** Averages over every solver, so this reads the whole day's set. */
@@ -293,14 +343,26 @@ class KvStore {
    * players there are. ZRANK would break ties arbitrarily by insertion order.
    */
   async standing(date, pid) {
-    const key = `best:${date}`;
     const mine = await this.getBest(date, pid);
     if (mine == null) return null;
-    const [better, total] = await Promise.all([
-      this._cmd('ZCOUNT', key, '-inf', `(${mine}`),
-      this._cmd('ZCARD', key),
+    const [myClue, flat] = await Promise.all([
+      this._cmd('HGET', `bestclue:${date}`, pid),
+      this._cmd('ZRANGE', `best:${date}`, '0', '-1', 'WITHSCORES'),
     ]);
-    return { rank: Number(better) + 1, total: Number(total) };
+    const entries = [];
+    for (let i = 0; i < flat.length; i += 2) entries.push({ pid: flat[i], score: Number(flat[i + 1]) });
+    if (!myClue) {
+      // No clue on record: fall back to the score alone.
+      return { rank: entries.filter((e) => e.score < mine).length + 1, total: entries.length };
+    }
+    const clues = await this._cmd('HMGET', `bestclue:${date}`, ...entries.map((e) => e.pid));
+    let better = 0;
+    entries.forEach((e, i) => {
+      const theirs = clues?.[i];
+      const ahead = theirs ? compareClues(theirs, myClue) < 0 : e.score < mine;
+      if (ahead) better++;
+    });
+    return { rank: better + 1, total: entries.length };
   }
 }
 

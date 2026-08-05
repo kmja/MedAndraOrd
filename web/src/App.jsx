@@ -155,7 +155,11 @@ function Leaderboard({ rows, standing, compact }) {
                 ) : (
                   <span className="lb-clue lb-hidden">••••••</span>
                 )}
-                <span className="lb-by">{row.name}</span>
+                <span className="lb-by">
+                  {row.count > 1
+                    ? `${row.count} spelare skrev samma sak`
+                    : row.name || 'Anonym'}
+                </span>
               </span>
               <span className="lb-score">{row.score}</span>
             </li>

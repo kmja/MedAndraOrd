@@ -21,6 +21,56 @@ export function normalize(s) {
     .trim();
 }
 
+/**
+ * Swedish Scrabble letter values, used only as a tiebreaker: a clue built from
+ * rarer letters beats one of the same length built from common ones.
+ *
+ * NOTE: assembled from the Swedish tile set. The confirmed anchors are A/D/E=1,
+ * C=8 and Q/Z=10; the rest follows the standard distribution. I could not read
+ * an authoritative table (the sources block automated fetches), so treat these
+ * as correctable — the game only needs a stable ordering where rare letters
+ * rank higher, and this is the single place to fix it.
+ */
+export const SCRABBLE_VALUES = {
+  a: 1, d: 1, e: 1, i: 1, l: 1, n: 1, o: 1, r: 1, s: 1, t: 1,
+  g: 2, k: 2, m: 2,
+  h: 3, ä: 3,
+  b: 4, f: 4, p: 4, u: 4, v: 4, å: 4, ö: 4,
+  j: 7, y: 7,
+  c: 8, x: 8, w: 8,
+  q: 10, z: 10,
+};
+
+/** Summed Scrabble value of a clue's letters. Unknown characters score 0. */
+export function scrabbleValue(s) {
+  let total = 0;
+  for (const c of normalize(s)) total += SCRABBLE_VALUES[c] ?? 0;
+  return total;
+}
+
+/** How many whitespace characters a clue uses — the first tiebreaker. */
+export function whitespaceCount(s) {
+  return [...String(s ?? '')].filter((c) => /\s/u.test(c)).length;
+}
+
+/**
+ * Leaderboard order for two clues. Lower is better overall:
+ *   1. fewer characters (the score itself)
+ *   2. fewer spaces — a clue that needs no spacing is tighter
+ *   3. higher Scrabble value — rarer letters are the harder feat
+ *   4. alphabetical, purely so equal clues never swap places between requests
+ * Returns <0 if a ranks above b.
+ */
+export function compareClues(a, b) {
+  const byLength = clueLength(a) - clueLength(b);
+  if (byLength) return byLength;
+  const bySpaces = whitespaceCount(a) - whitespaceCount(b);
+  if (bySpaces) return bySpaces;
+  const byRarity = scrabbleValue(b) - scrabbleValue(a);
+  if (byRarity) return byRarity;
+  return normalize(a).localeCompare(normalize(b), 'sv');
+}
+
 /** Count of unicode characters. */
 export function charCount(s) {
   return [...String(s)].length;
