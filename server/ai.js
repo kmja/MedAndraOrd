@@ -79,17 +79,78 @@ export function parseGuardedGuess(text) {
   }
 }
 
-function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false }) {
-  return client().models.generateContent({
-    model: MODEL,
-    contents,
-    config: {
-      systemInstruction: system,
-      maxOutputTokens,
-      temperature: 0, // same clue should tend to the same verdict
-      ...(json ? { responseMimeType: 'application/json' } : {}),
-    },
-  });
+/**
+ * What kind of failure was that? Exported because the caller's right response
+ * differs completely: a quota error means wait, a key error means stop, and
+ * anything else means carry on and treat the check as unavailable.
+ *
+ * Deliberately sloppy about where it looks. The SDK builds its errors on more
+ * than one path, and `status` is sometimes the numeric code and sometimes the
+ * status text, so matching the message too is what makes this reliable.
+ */
+export function classifyApiError(err) {
+  const status = err?.status;
+  const text = `${err?.message ?? ''} ${typeof status === 'string' ? status : ''}`;
+
+  if (status === 429 || /\b429\b|RESOURCE_EXHAUSTED|rate.?limit|\bquota\b/i.test(text)) {
+    return 'rate_limit';
+  }
+  if (status === 401 || status === 403 ||
+      /\b401\b|\b403\b|UNAUTHENTICATED|PERMISSION_DENIED|API key not valid|default credentials/i.test(text)) {
+    return 'auth'; // retrying cannot help — the key is wrong or missing
+  }
+  if (status === 500 || status === 503 || /\b50[023]\b|UNAVAILABLE|overloaded/i.test(text)) {
+    return 'transient';
+  }
+  return 'other';
+}
+
+/**
+ * How long the API asked us to wait, in ms, if it said so. Gemini attaches a
+ * RetryInfo to quota errors, and honouring it beats guessing — a per-minute
+ * quota wants the rest of that minute, not an exponential ramp.
+ */
+export function retryDelayMs(err) {
+  const m = /"?retryDelay"?\s*:\s*"?(\d+(?:\.\d+)?)s/i.exec(err?.message ?? '');
+  if (!m) return null;
+  const ms = Number(m[1]) * 1000;
+  return Number.isFinite(ms) && ms >= 0 ? Math.min(ms, 60_000) : null;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Retries are bounded and short. A quota blip should not cost a player their
+// round, but a player is also waiting on this call — so two quick attempts,
+// not a patient backoff. The probe, which has time, layers its own retry on
+// top via the `ai` seam in judgeClue.
+const RETRIES = 2;
+const BACKOFF_MS = [700, 1800];
+
+async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false, onFailure }) {
+  let lastErr;
+  for (let attempt = 0; attempt <= RETRIES; attempt++) {
+    try {
+      return await client().models.generateContent({
+        model: MODEL,
+        contents,
+        config: {
+          systemInstruction: system,
+          maxOutputTokens,
+          temperature: 0, // same clue should tend to the same verdict
+          ...(json ? { responseMimeType: 'application/json' } : {}),
+        },
+      });
+    } catch (err) {
+      lastErr = err;
+      const kind = classifyApiError(err);
+      onFailure?.(kind, err);
+      // A bad key fails identically on every attempt; waiting just makes the
+      // player wait too.
+      if (kind === 'auth' || kind === 'other' || attempt === RETRIES) throw err;
+      await sleep(retryDelayMs(err) ?? BACKOFF_MS[attempt]);
+    }
+  }
+  throw lastErr;
 }
 
 const userTurn = (text) => ({ role: 'user', parts: [{ text }] });
@@ -117,7 +178,7 @@ const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
  * kock). Closing that properly means putting translations in the word bank
  * and checking them in code, which is free and deterministic.
  */
-export async function guardedGuesser({ clue, letterCount, feedback = [] }) {
+export async function guardedGuesser({ clue, letterCount, feedback = [], onFailure }) {
   const system = guesserSystemPrompt(letterCount);
 
   const contents = [
@@ -129,10 +190,10 @@ export async function guardedGuesser({ clue, letterCount, feedback = [] }) {
   }
 
   try {
-    const response = await generate({ system, contents, maxOutputTokens: 150, json: true });
+    const response = await generate({ system, contents, maxOutputTokens: 150, json: true, onFailure });
     return parseGuardedGuess(textOf(response));
   } catch (err) {
-    console.error('guardedGuesser failed:', err.message);
+    console.error(`guardedGuesser failed (${classifyApiError(err)}):`, err.message);
     return null; // fail open
   }
 }

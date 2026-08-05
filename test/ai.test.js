@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { textOf, parseRuling, guesserSystemPrompt } from '../server/ai.js';
+import { textOf, parseRuling, guesserSystemPrompt, classifyApiError, retryDelayMs } from '../server/ai.js';
 import { WORDS } from '../server/words.js';
 import { normalize } from '../server/util.js';
 
@@ -128,4 +128,54 @@ test('the guesser prompt tells the model to expect oblique clues', () => {
   const prompt = guesserSystemPrompt(6);
   assert.match(prompt, /kryptisk|omskrivning/i);
   assert.match(prompt, /inte bokstavligt|Läs ledtråden som den är tänkt/i);
+});
+
+// ---------------------------------------------------------------------------
+// API failures
+//
+// The right response differs completely per kind: a quota error means wait, a
+// key error means stop, and anything else means treat the check as unavailable
+// and carry on. Getting the classification wrong means either hammering a
+// dead key or writing off a word that only needed ten seconds.
+
+test('classifyApiError spots quota errors however they are shaped', () => {
+  // The SDK builds errors on more than one path — sometimes `status` is the
+  // numeric code, sometimes the status text, sometimes only the message says.
+  for (const err of [
+    { status: 429 },
+    { status: 'Too Many Requests', message: 'got status: 429' },
+    { message: '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}' },
+    { message: 'You exceeded your current quota' },
+    { message: 'rate limit exceeded' },
+  ]) {
+    assert.equal(classifyApiError(err), 'rate_limit', JSON.stringify(err));
+  }
+});
+
+test('classifyApiError separates key problems, which retrying cannot fix', () => {
+  for (const err of [
+    { status: 401 },
+    { status: 403 },
+    { message: 'API key not valid. Please pass a valid API key.' },
+    { message: 'Could not load the default credentials' }, // the missing-key case
+  ]) {
+    assert.equal(classifyApiError(err), 'auth', JSON.stringify(err));
+  }
+});
+
+test('classifyApiError does not mistake ordinary failures for quota', () => {
+  assert.equal(classifyApiError(new Error('socket hang up')), 'other');
+  assert.equal(classifyApiError(undefined), 'other');
+  assert.equal(classifyApiError({ status: 503 }), 'transient');
+});
+
+test('retryDelayMs honours the wait the API asked for', () => {
+  // A per-minute quota wants the rest of that minute, not an exponential ramp,
+  // so the server's own suggestion beats any backoff we invent.
+  assert.equal(retryDelayMs({ message: '"retryDelay":"27s"' }), 27_000);
+  assert.equal(retryDelayMs({ message: 'retryDelay: "1.5s"' }), 1500);
+  assert.equal(retryDelayMs({ message: 'no delay here' }), null);
+  assert.equal(retryDelayMs(undefined), null);
+  // Never wait absurdly long on a malformed or hostile value.
+  assert.equal(retryDelayMs({ message: '"retryDelay":"99999s"' }), 60_000);
 });

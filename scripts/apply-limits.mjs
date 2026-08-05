@@ -84,6 +84,10 @@ for (const entry of WORDS) {
   const run = runs.get(normalize(entry.word));
   if (!run) continue;
 
+  if (run.verdict?.startsWith('OSÄKER')) {
+    skipped.push({ word: entry.word, why: 'osäker mätning — kör om ordet' });
+    continue;
+  }
   if (run.suggestedLimit == null) {
     // Nothing solved the word, so the probe has no evidence about length.
     // Leaving the limit alone is the honest move; the word needs a looser

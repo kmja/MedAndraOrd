@@ -44,6 +44,8 @@ import { GoogleGenAI } from '@google/genai';
 
 import { WORDS, wordByIndex } from '../server/words.js';
 import { judgeClue, AiUnavailableError } from '../server/game.js';
+import * as serverAi from '../server/ai.js';
+import { classifyApiError, retryDelayMs } from '../server/ai.js';
 import { isSwedishWord } from '../server/dictionary.js';
 import { clueLength, letterCount, normalize, suggestedLimit, clueLimitFor, CLUE_LIMIT_CEILING } from '../server/util.js';
 
@@ -189,32 +191,152 @@ const ai = new GoogleGenAI({ apiKey });
 const MODEL = process.env.ORDKNAPP_MODEL || 'gemini-3.1-flash-lite';
 
 // ---------------------------------------------------------------------------
+// quota
+//
+// The free tier is per-minute, so a run of any size will meet it. That is not
+// an error to report and move past — it is a signal to wait, because the same
+// call will succeed shortly. The live server retries twice and gives up fast,
+// since a player is waiting; a probe is not in a hurry and can afford to sit
+// out the rest of a minute.
+
+const quota = { hits: 0, waited: 0, absorbed: 0, stop: false };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Long enough to outlast a per-minute window, few enough to notice a quota
+// that isn't coming back.
+const MAX_WAITS = 4;
+const BACKOFF_MS = [5_000, 15_000, 30_000, 60_000];
+
+/**
+ * Run one API-shaped call, waiting out quota errors. Returns { ok, value } so
+ * callers can distinguish "no answer" from "answered with nothing".
+ */
+async function withQuotaRetry(label, fn) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { ok: true, value: await fn() };
+    } catch (err) {
+      const kind = classifyApiError(err);
+
+      if (kind === 'auth') {
+        // No amount of waiting fixes a bad key, and continuing would fail every
+        // remaining word the same way.
+        console.error(`\n  ✖ Nyckeln avvisades av API:et. Kontrollera GEMINI_API_KEY i .env.`);
+        console.error(`    ${err.message?.slice(0, 160)}`);
+        quota.stop = true;
+        return { ok: false, kind };
+      }
+
+      if (kind !== 'rate_limit' && kind !== 'transient') return { ok: false, kind, err };
+
+      quota.hits++;
+      if (attempt >= MAX_WAITS) {
+        console.error(`  ✖ ${label}: kvoten släppte inte efter ${MAX_WAITS} försök. Avbryter.`);
+        quota.stop = true;
+        return { ok: false, kind };
+      }
+
+      const wait = retryDelayMs(err) ?? BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)];
+      quota.waited += wait;
+      const why = kind === 'rate_limit' ? 'Kvotgräns nådd (429)' : 'API:et svarar inte';
+      console.error(`  ⏳ ${why} — väntar ${Math.round(wait / 1000)}s och försöker igen (${label})`);
+      await sleep(wait);
+    }
+  }
+}
+
+// The probe reaches the guesser through judgeClue's `ai` seam, so it can wait
+// out a quota without making the live game patient too.
+const patientAi = {
+  guardedGuesser: async (args) => {
+    const r = await withQuotaRetry('gissning', async () => {
+      let failure = null;
+      const out = await serverAi.guardedGuesser({
+        ...args,
+        onFailure: (kind, err) => {
+          failure = { kind, err };
+          // Fires for every failed attempt, including ones the server's own
+          // retry then recovers from. Counted separately: being throttled and
+          // silently recovering is still worth knowing about, or a run looks
+          // clean while sitting right on the quota.
+          if (kind === 'rate_limit') quota.absorbed++;
+        },
+      });
+      // guardedGuesser fails open and returns null, so the error never reaches
+      // us as a throw. Rethrow the quota case ourselves, or the wait never
+      // happens and the clue is written off as unanswerable.
+      if (out == null && (failure?.kind === 'rate_limit' || failure?.kind === 'transient')) throw failure.err;
+      if (out == null && failure?.kind === 'auth') throw failure.err;
+      return out;
+    });
+    return r.ok ? r.value : null;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // the adversarial player: sees everything, tries to win in as few characters
 // as possible
 
 async function proposeClues({ word, forbidden }) {
-  const system = `Du är en mycket skicklig spelare i ordspelet Ordknapp. Du ska skriva ledtrådar som får en BLIND AI att gissa ett hemligt svenskt ord. AI:n ser bara din ledtråd och ordets antal bokstäver.
+  const n = letterCount(word);
+  const system = `Du är en av Sveriges vassaste spelare i ordspelet Ordknapp.
 
-Poängen är antalet tecken — färre är bättre. Sikta så kort du kan.
+SÅ FUNGERAR DET: en BLIND AI ska gissa ett hemligt svenskt ord. Den ser BARA din ledtråd och hur många bokstäver ordet har — inget annat. Den vet inte vad ordet är, den ser inga andra ledtrådar, och den kan inte fråga.
 
-Regler: svenska, inte målordet eller dess böjningar, inte de spärrade orden, ingen översättning, inga stavnings- eller rimtrick, och inget ordled som bara ska fyllas i till en sammansättning. Kända exempel (egennamn) är tillåtna.
+POÄNGEN är antalet tecken, färre är bättre. MEN en ledtråd som inte får AI:n att gissa rätt är värd exakt noll, hur kort den än är. Du jagar alltså den kortaste ledtråd som FAKTISKT FUNGERAR — inte den kortaste ledtråden.
 
-Svara ENDAST med JSON: {"clues": ["...", "..."]} med ${opts.clues} förslag, sorterade kortast först. Blanda strategier: beskrivning, funktion, kända exempel, sammansättningar som beskriver.`;
+TESTET du måste ställa på varje förslag:
+Av ALLA svenska ord på ${n} bokstäver — pekar min ledtråd ut just det här ordet, eller passar den lika bra på tjugo andra?
+Ett ensamt allmänt ord klarar aldrig det testet. "gå", "väder", "skydd", "ben" passar på hundratals ord och gissas därför fel varje gång. Sådana förslag är bortkastade.
 
-  const user = `Hemligt ord: ${word} (${letterCount(word)} bokstäver)
+VAD SOM FAKTISKT FUNGERAR:
+- påhittade sammansättningar som beskriver saken ("kaninmat", "blomvatten")
+- ett konkret sammanhang där saken är den självklara: platsen, situationen, vem som använder den
+- kända exempel och egennamn
+- oväntade bilder och sneda vinklar, som i ett kryptiskt korsord
+- två ord som tillsammans smalnar av kraftigt, när ett ord inte räcker
+
+REGLER: svenska; inte målordet eller dess böjningar; inte de spärrade orden; ingen översättning; inga stavnings- eller rimtrick; och inget ordled som bara ska fyllas i till en sammansättning.
+
+Ge ${opts.clues} förslag med SPRIDNING i längd — några djärvt korta, några i mellanlängd, några längre och säkrare. Poängen är att hitta var gränsen går, så slösa inte alla förslag på samma längd.
+
+För varje förslag: skriv kort varför just den pekar ut ordet och inget annat. Om du inte kan motivera det, är förslaget för vagt — byt ut det.
+
+Svara ENDAST med JSON:
+{"clues": [{"clue": "...", "why": "..."}, ...]}`;
+
+  const user = `Hemligt ord: ${word} (${n} bokstäver)
 Spärrade ord: ${forbidden.join(', ') || '(inga)'}`;
 
-  const res = await ai.models.generateContent({
+  const call = await withQuotaRetry(`förslag för ${word}`, () => ai.models.generateContent({
     model: MODEL,
     contents: [{ role: 'user', parts: [{ text: user }] }],
-    config: { systemInstruction: system, maxOutputTokens: 800, temperature: 1, responseMimeType: 'application/json' },
-  });
-  const text = res.text ?? '';
+    config: {
+      systemInstruction: system,
+      // Room for the reasoning field — cutting it off mid-JSON loses the whole
+      // proposal, and a truncated batch is the one failure that looks like a
+      // hard word rather than a broken call.
+      maxOutputTokens: 2200,
+      temperature: 1,
+      responseMimeType: 'application/json',
+    },
+  }));
+  // An unanswered proposal call used to throw straight out of the run, taking
+  // every word already measured with it. Now the word is skipped and the rest
+  // of the run stands.
+  if (!call.ok) return [];
+
+  const text = call.value.text ?? '';
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return [];
   try {
-    return (JSON.parse(m[0]).clues ?? [])
-      .filter((c) => typeof c === 'string' && clueLength(c) > 0 && clueLength(c) <= CLUE_LIMIT_CEILING);
+    const raw = JSON.parse(m[0]).clues ?? [];
+    return raw
+      // Accept both shapes: the reasoning field is what we ask for, but a bare
+      // string is a normal thing for a model to fall back to and there is no
+      // reason to throw the run away over it.
+      .map((c) => (typeof c === 'string' ? { clue: c, why: null } : { clue: c?.clue, why: c?.why ?? null }))
+      .filter((c) => typeof c.clue === 'string' && clueLength(c.clue) > 0 && clueLength(c.clue) <= CLUE_LIMIT_CEILING);
   } catch {
     return [];
   }
@@ -358,7 +480,7 @@ async function probe(entry) {
   const results = [];
   let unavailable = 0;
 
-  for (const clue of clues) {
+  for (const { clue, why } of clues) {
     try {
       // Measured against the ceiling, not the word's current limit. Probing
       // inside the existing limit would only ever confirm it: clues longer than
@@ -367,7 +489,7 @@ async function probe(entry) {
       const verdict = await judgeClue({
         clue, target: entry.word, forbidden: entry.forbidden, maxLength: CLUE_LIMIT_CEILING,
       });
-      results.push({ clue, len: clueLength(clue), type: verdict.type, guess: verdict.guess, reason: verdict.reason });
+      results.push({ clue, why, len: clueLength(clue), type: verdict.type, guess: verdict.guess, reason: verdict.reason });
     } catch (err) {
       // A run is a measurement, and losing every earlier clue because the last
       // one timed out would be the worst possible way to spend the calls. Note
@@ -375,7 +497,7 @@ async function probe(entry) {
       // that half-failed must not read as a finding.
       if (!(err instanceof AiUnavailableError)) throw err;
       unavailable++;
-      results.push({ clue, len: clueLength(clue), type: 'ai_unavailable', guess: null });
+      results.push({ clue, why, len: clueLength(clue), type: 'ai_unavailable', guess: null });
     }
   }
 
@@ -384,8 +506,13 @@ async function probe(entry) {
   const solved = answered.filter((r) => r.type === 'correct').sort((a, b) => a.len - b.len);
   const rate = answered.length ? Math.round((solved.length / answered.length) * 100) : 0;
   const shortest = solved[0] ?? null;
-  const verdict = !shortest
-    ? 'FÖR SVÅR'
+  // A verdict is a claim about the word. Too few answers and it is really a
+  // claim about the run — say so instead of printing "FÖR SVÅR" for a word
+  // that mostly hit the quota.
+  const thin = answered.length < Math.max(4, clues.length * 0.6);
+  const verdict = thin
+    ? 'OSÄKER (för få svar)'
+    : !shortest ? 'FÖR SVÅR'
     : shortest.len <= 4 ? 'FÖR LÄTT'
     : rate >= 90 ? 'FÖR LÄTT (allt löser)'
     : 'BRA';
@@ -399,6 +526,10 @@ const report = [];
 const startedAt = new Date().toISOString();
 
 for (const entry of targets) {
+  if (quota.stop) {
+    console.log(`Avbröt före ${entry.word} — se meddelandet ovan. Det som hann mätas är sparat.`);
+    break;
+  }
   // Read the history BEFORE this run is appended, or the comparison would be
   // against itself.
   const prev = opts.save ? store.read(entry.word)?.runs?.slice(-1)[0] ?? null : null;
@@ -418,8 +549,12 @@ for (const entry of targets) {
     verdict: r.verdict,
     unavailable: r.unavailable,
     currentLimit: clueLimitFor(entry),
-    suggestedLimit: suggestedLimit(r.solved.map((s) => s.len)),
-    solved: r.solved.map((s) => ({ clue: s.clue, len: s.len })),
+    // No limit suggestion from a run that didn't get enough answers. The
+    // limit decides whether real players can win the word; deriving it from a
+    // handful of clues that survived a quota storm is how a word silently
+    // becomes unwinnable.
+    suggestedLimit: r.verdict.startsWith('OSÄKER') ? null : suggestedLimit(r.solved.map((s) => s.len)),
+    solved: r.solved.map((s) => ({ clue: s.clue, len: s.len, why: s.why ?? null })),
     rejected: r.results.filter((x) => x.type === 'rejected').map((x) => ({ clue: x.clue, reason: x.reason })),
     missed: r.results.filter((x) => x.type === 'wrong').map((x) => ({ clue: x.clue, guess: x.guess })),
     routes: r.routes,
@@ -441,6 +576,7 @@ for (const entry of targets) {
       : x.type === 'ai_unavailable' ? '⚠ inget svar från AI:n'
       : `→ ${x.guess ?? x.type}`;
     console.log(`    ${mark} ${String(x.len).padStart(2)}  ${x.clue.padEnd(22)} ${tail}`);
+    if (x.type === 'correct' && x.why) console.log(`         ${x.why}`);
   }
   if (r.routes.length) {
     console.log(`\n  VÄGAR IN (led som återkommer i lösningarna — kandidater till spärrlistan)`);
@@ -464,6 +600,21 @@ for (const s of report) {
 }
 const bad = report.filter((s) => s.verdict !== 'BRA');
 console.log(`\n${bad.length}/${report.length} ord behöver ses över.`);
+
+if (quota.hits || quota.absorbed) {
+  const parts = [];
+  if (quota.absorbed) parts.push(`${quota.absorbed} återförsöktes direkt`);
+  if (quota.hits) parts.push(`${quota.hits} krävde väntan (${Math.round(quota.waited / 1000)}s totalt)`);
+  console.log(`\nKVOT: ${quota.absorbed + quota.hits} kvotfel — ${parts.join(', ')}.`);
+  console.log('     Du ligger nära gränsen. Kör färre ord åt gången, eller vänta en stund mellan körningar.');
+}
+if (report.some((r) => r.unavailable)) {
+  console.log('Ord med ⚠ mättes på färre ledtrådar än begärt — siffrorna för dem är osäkrare.');
+}
+if (quota.stop) {
+  console.log('\nKörningen avbröts i förtid. Resultaten ovan är kompletta för de ord som hanns med.');
+  process.exitCode = 1;
+}
 
 if (opts.save) {
   console.log(`\nSparat i ${opts.out}/ — ett filnamn per ord, en post per körning.`);
