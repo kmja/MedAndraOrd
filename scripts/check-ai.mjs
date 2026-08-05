@@ -38,9 +38,17 @@ const cheat = await guardedGuesser({ clue: 'carrot', letterCount: 5 });
 ok('ett anrop: stoppar icke-svenska (översättning)', cheat?.legal === false,
    cheat === null ? 'INGET SVAR (fail open)' : JSON.stringify(cheat));
 
-const abbrev = await guardedGuesser({ clue: 'bl.a. rotsak', letterCount: 5 });
-ok('ett anrop: stoppar förkortning', abbrev?.legal === false,
-   abbrev === null ? 'INGET SVAR (fail open)' : JSON.stringify(abbrev));
+// Consistency, not coverage: "jan" and "feb" are the same move (name a month
+// to point at "månad"), and must get the same verdict. They used to differ,
+// because one is also a man's name — which is exactly why the abbreviation
+// rule was dropped.
+const [jan, feb] = await Promise.all([
+  guardedGuesser({ clue: 'jan', letterCount: 5 }),
+  guardedGuesser({ clue: 'feb', letterCount: 5 }),
+]);
+ok('ett anrop: samma sorts ledtråd får samma dom',
+   jan?.legal === feb?.legal && jan?.legal === true,
+   `jan=${JSON.stringify(jan?.legal)} feb=${JSON.stringify(feb?.legal)}`);
 
 // The judgment half of the compound rule: no ellipsis to give it away.
 const fragment = await guardedGuesser({ clue: 'skit', letterCount: 6 });

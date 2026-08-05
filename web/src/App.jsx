@@ -394,7 +394,7 @@ export default function App() {
               upp till {state.maxClueLength} tecken — de räknas fullt ut, men hamnar längre
               ner på topplistan. Mellanslag räknas inte.
             </li>
-            <li>Svenska ord. Inga förkortningar eller bokstaveringstrick.</li>
+            <li>Svenska ord. Inga bokstaverings- eller rimtrick.</li>
             <li>
               Beskriv ordet — peka inte bara ut det. Ett ordled som ska fyllas i
               till en sammansättning (”skit…”) räknas inte. Sammansättningar som

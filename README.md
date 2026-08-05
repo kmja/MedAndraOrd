@@ -83,6 +83,22 @@ strikt, men en omformulerad prompt eller en ny modell kunde börja avvisa
 egennamn när som helst — och felet hade synts först när en spelare klagade.
 Därför står tillåtelsen nu uttryckligen i prompten, och `check:ai` provar den.
 
+### Förkortningar: regeln är borttagen
+
+”jan” släpptes igenom men ”feb” avvisades som förkortning — samma drag, olika
+dom. Orsaken är att ”jan” också är ett mansnamn, så modellen såg ett riktigt ord
+i det ena fallet och en förkortning i det andra. Ingen kan veta vilket som
+avsågs.
+
+Regeln stred dessutom mot att kända exempel är tillåtna: ”feb” för **månad** är
+exakt samma drag som ”etna” för **vulkan** — peka ut en instans och låt AI:n
+generalisera. Att tillåta ”etna” men stoppa ”feb” är inkonsekvent.
+
+Därför är regeln borta. En regel som inte kan tillämpas konsekvent är sämre än
+ingen regel: hela cachen finns för att samma ledtråd ska få samma dom, och en
+regel som slumpar bryter just det löftet. `check:ai` provar numera inte att
+förkortningar stoppas, utan att ”jan” och ”feb” får **samma** svar.
+
 ### Sammansättningsledtrådar
 
 ”skit…” löser *stövel* utan att beskriva en stövel — det är en lucka att fylla i,
