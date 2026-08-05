@@ -17,25 +17,94 @@ const chars = (s) => [...String(s ?? '')];
 // out for readability never costs a point. The server is still authoritative.
 const clueLength = (s) => chars(s).filter((c) => !/\s/u.test(c)).length;
 
+// Only these cost an attempt, so only these take a slot. Mirrors
+// costsAttempt() in server/game.js.
+const takesSlot = (entry) => entry?.type === 'correct' || entry?.type === 'wrong';
+
 /**
- * A row of crossword squares. The answer is shown filled — the player already
- * knows it; it's the AI that's blind — and each guess lands in its own row
- * below, so right and wrong read as two rows to compare rather than as prose.
+ * A row of crossword squares. Each box carries its index so CSS can stagger
+ * the reveal — the letters land one after another rather than all at once.
  */
 function LetterRow({ word, tone = 'answer', length }) {
   const letters = word ? chars(word.toUpperCase()) : Array.from({ length: length ?? 0 }, () => '');
   return (
-    // --n drives the grid track count so squares shrink to fit rather than
-    // wrapping onto a second line — the bank goes up to 9 letters.
     <div
       className={`row row-${tone}`}
       style={{ '--n': letters.length }}
       aria-label={word || `${length} bokstäver`}
     >
       {letters.map((letter, i) => (
-        <span key={i} className="box" aria-hidden="true">{letter}</span>
+        <span key={i} className="box" style={{ '--i': i }} aria-hidden="true">{letter}</span>
       ))}
     </div>
+  );
+}
+
+/** The two halves of one exchange: what you said, what the AI answered. */
+function Exchange({ clue, entry, pending, letterCount }) {
+  return (
+    <div className="exchange">
+      <div className="turn turn-you">
+        <span className="turn-label">Din ledtråd</span>
+        <span className="turn-body clue-text">{clue}</span>
+      </div>
+
+      <div className={pending ? 'turn turn-ai is-pending' : 'turn turn-ai'}>
+        <span className="turn-label">AI:ns gissning</span>
+        <span className="turn-body">
+          {pending ? (
+            <>
+              <LetterRow length={letterCount} tone="pending" />
+              <span className="thinking">Tänker<i>.</i><i>.</i><i>.</i></span>
+            </>
+          ) : (
+            <>
+              <LetterRow
+                word={entry.guess}
+                tone={entry.type === 'correct' ? 'correct' : 'wrong'}
+                length={letterCount}
+              />
+              {entry.type === 'correct' ? (
+                <span className="verdict verdict-win">
+                  Rätt! <strong>{entry.score} tecken</strong>
+                </span>
+              ) : (
+                <span className="verdict verdict-miss">Inte rätt ord</span>
+              )}
+            </>
+          )}
+        </span>
+
+        {/* Burst from the centre of the guess row, once it has landed. */}
+        {entry?.type === 'correct' && (
+          <span className="sparkles" aria-hidden="true">
+            {Array.from({ length: 10 }, (_, i) => (
+              <i key={i} style={{ '--s': i }} />
+            ))}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Slot({ number, entry, pendingClue, letterCount, used }) {
+  const state = pendingClue ? 'pending' : entry ? entry.type : used ? 'used' : 'empty';
+  return (
+    <li className={`slot slot-${state}`}>
+      <span className="slot-num" aria-hidden="true">{number}</span>
+      <div className="slot-body">
+        {pendingClue ? (
+          <Exchange clue={pendingClue} pending letterCount={letterCount} />
+        ) : entry ? (
+          <Exchange clue={entry.clue} entry={entry} letterCount={letterCount} />
+        ) : used ? (
+          <span className="slot-placeholder">Använt försök</span>
+        ) : (
+          <span className="slot-placeholder">Ledigt försök</span>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -43,9 +112,9 @@ export default function App() {
   const [state, setState] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [clue, setClue] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState([]);
-  const [flash, setFlash] = useState(null);
+  const [pendingClue, setPendingClue] = useState(null);
+  const [history, setHistory] = useState([]); // newest first
+  const [notice, setNotice] = useState(null); // free outcomes + errors
   const [nameInput, setNameInput] = useState('');
   const [practice, setPractice] = useState(null);
   const inputRef = useRef(null);
@@ -63,23 +132,35 @@ export default function App() {
   if (!state) return <div className="shell"><p className="muted">Laddar…</p></div>;
 
   const active = practice ?? state;
+  const busy = pendingClue !== null;
   const outOfAttempts = !practice && state.attemptsLeft <= 0;
   const clueLen = clueLength(clue);
   const tooLong = clueLen > state.maxClueLength;
   const solved = history.some((h) => h.type === 'correct');
 
+  // Slots are the page's spine: every attempt the player has, in order.
+  // Scoring entries fill them oldest-first; the server's attemptsLeft is
+  // authoritative, so attempts made in an earlier session show as "used"
+  // even though this session has no transcript for them.
+  const scoring = history.filter(takesSlot).slice().reverse();
+  const maxSlots = practice ? Math.max(scoring.length + 1, 1) : state.maxAttempts;
+  const used = practice ? scoring.length : state.maxAttempts - state.attemptsLeft;
+  const offset = Math.max(0, used - scoring.length);
+
   async function submit(e) {
     e.preventDefault();
     const text = clue.trim();
     if (!text || tooLong || busy || outOfAttempts) return;
-    setBusy(true);
-    setFlash(null);
+    setPendingClue(text);
+    setNotice(null);
+    setClue('');
     try {
       const body = practice
         ? { clue: text, practice: true, wordIndex: practice.wordIndex }
         : { clue: text };
       const res = await api('/api/clue', { method: 'POST', body: JSON.stringify(body) });
-      setHistory((h) => [{ clue: text, ...res.result }, ...h]);
+      const entry = { clue: text, ...res.result };
+      setHistory((h) => [entry, ...h]);
       if (!res.practice) {
         setState((s) => ({
           ...s,
@@ -88,17 +169,24 @@ export default function App() {
           leaderboard: res.leaderboard,
         }));
       }
-      if (res.result.type !== 'rejected') setClue('');
-      inputRef.current?.focus();
+      // Outcomes that cost nothing never take a slot — they are notices.
+      if (entry.type === 'rejected') {
+        setNotice({ kind: 'rejected', text: entry.reason, clue: text });
+      } else if (entry.type === 'ai_failure') {
+        setNotice({ kind: 'ai_failure', guess: entry.guess, clue: text });
+      }
+      if (entry.type === 'rejected') setClue(text); // let them edit it
     } catch (err) {
-      setFlash(err.message);
+      setNotice({ kind: 'error', text: err.message });
+      setClue(text);
     } finally {
-      setBusy(false);
+      setPendingClue(null);
+      inputRef.current?.focus();
     }
   }
 
   async function randomize() {
-    setFlash(null);
+    setNotice(null);
     try {
       const w = await api('/api/random');
       setPractice(w);
@@ -106,7 +194,7 @@ export default function App() {
       setClue('');
       inputRef.current?.focus();
     } catch (err) {
-      setFlash(err.message);
+      setNotice({ kind: 'error', text: err.message });
     }
   }
 
@@ -114,7 +202,7 @@ export default function App() {
     setPractice(null);
     setHistory([]);
     setClue('');
-    setFlash(null);
+    setNotice(null);
   }
 
   async function saveName(e) {
@@ -124,9 +212,8 @@ export default function App() {
     try {
       const res = await api('/api/name', { method: 'POST', body: JSON.stringify({ name }) });
       setState((s) => ({ ...s, name: res.name, leaderboard: res.leaderboard }));
-      setFlash(null);
     } catch (err) {
-      setFlash(err.message);
+      setNotice({ kind: 'error', text: err.message });
     }
   }
 
@@ -134,9 +221,7 @@ export default function App() {
     <div className="shell">
       <header>
         <h1>Ordknapp</h1>
-        <p className="tagline">
-          Skriv en ledtråd så att AI:n gissar ordet. Kortast ledtråd vinner.
-        </p>
+        <p className="tagline">Skriv en ledtråd så att AI:n gissar ordet. Kortast vinner.</p>
       </header>
 
       <main className="card">
@@ -144,16 +229,12 @@ export default function App() {
           <div className="puzzle-head">
             <span className="label">{practice ? 'Övningsord' : 'Dagens ord'}</span>
             {!practice && (
-              <span className="attempts" title="Försök kvar idag">
-                {Array.from({ length: state.maxAttempts }, (_, i) => (
-                  <span key={i} className={i < state.attemptsLeft ? 'dot on' : 'dot'} />
-                ))}
+              <span className="attempts-count">
+                {state.attemptsLeft} av {state.maxAttempts} försök kvar
               </span>
             )}
           </div>
-
           <LetterRow word={active.word} tone="answer" />
-
           <div className="forbidden">
             <span className="label">Får inte användas</span>
             <span className="chips">
@@ -163,6 +244,42 @@ export default function App() {
             </span>
           </div>
         </div>
+
+        <ol className="slots" aria-live="polite">
+          {Array.from({ length: maxSlots }, (_, i) => {
+            const entry = i >= offset ? scoring[i - offset] : undefined;
+            const isPending = busy && i === used;
+            return (
+              <Slot
+                key={i}
+                number={i + 1}
+                entry={entry}
+                pendingClue={isPending ? pendingClue : null}
+                letterCount={active.letterCount}
+                used={i < used}
+              />
+            );
+          })}
+        </ol>
+
+        {notice && (
+          <div className={`notice notice-${notice.kind}`} role="status">
+            {notice.kind === 'rejected' && (
+              <>
+                <strong>Otillåten ledtråd.</strong> {notice.text}{' '}
+                <em>Kostade inget försök.</em>
+              </>
+            )}
+            {notice.kind === 'ai_failure' && (
+              <>
+                <strong>AI:n gav inget giltigt svar</strong>
+                {notice.guess ? <> (<s>{notice.guess}</s>)</> : null}.{' '}
+                <em>Kostade inget försök — prova igen.</em>
+              </>
+            )}
+            {notice.kind === 'error' && notice.text}
+          </div>
+        )}
 
         <form onSubmit={submit} className="clue-form">
           <div className="input-row">
@@ -177,7 +294,7 @@ export default function App() {
               aria-label="Din ledtråd"
             />
             <button type="submit" disabled={busy || outOfAttempts || !clue.trim() || tooLong}>
-              {busy ? 'Gissar…' : 'Testa'}
+              {busy ? 'Skickar…' : 'Testa'}
             </button>
           </div>
           <div className="meta-row">
@@ -190,23 +307,8 @@ export default function App() {
           </div>
         </form>
 
-        {flash && <p className="error">{flash}</p>}
-        {/* The golf loop only happens if players know to keep going. */}
-        {solved && !outOfAttempts && (
-          <p className="muted note">Klarat! Går det med färre tecken?</p>
-        )}
+        {solved && !outOfAttempts && <p className="muted note">Klarat! Går det med färre tecken?</p>}
         {outOfAttempts && <p className="muted note">Nytt ord imorgon.</p>}
-
-        <ul className="history">
-          {busy && (
-            <li className="entry thinking">
-              <LetterRow length={active.letterCount} tone="pending" />
-            </li>
-          )}
-          {history.map((h, i) => (
-            <HistoryEntry key={history.length - i} entry={h} letterCount={active.letterCount} />
-          ))}
-        </ul>
 
         {state.practiceEnabled && (
           <div className="practice-controls">
@@ -227,9 +329,7 @@ export default function App() {
         <section className="card">
           <h2>Topplista</h2>
           {state.durable === false && (
-            <p className="warn">
-              Ingen databas är kopplad — resultaten försvinner när servern startar om.
-            </p>
+            <p className="warn">Ingen databas är kopplad — resultaten försvinner när servern startar om.</p>
           )}
           {state.leaderboard.length === 0 ? (
             <p className="muted">Ingen har klarat dagens ord ännu.</p>
@@ -252,9 +352,7 @@ export default function App() {
               maxLength={20}
               aria-label="Ditt namn på topplistan"
             />
-            <button type="submit" className="ghost" disabled={!nameInput.trim()}>
-              Spara
-            </button>
+            <button type="submit" className="ghost" disabled={!nameInput.trim()}>Spara</button>
           </form>
         </section>
       )}
@@ -267,48 +365,12 @@ export default function App() {
             <li>Svenska ord. Inga förkortningar eller bokstaveringstrick.</li>
             <li>Inte ordet självt, dess böjningar eller de spärrade orden.</li>
             <li>Inga översättningar av ordet till andra språk.</li>
-            <li>Ledtrådar som bryter mot reglerna kostar inget försök.</li>
+            <li>Otillåtna ledtrådar och AI-missar kostar inget försök.</li>
             <li>Poäng = antal tecken i din kortaste lyckade ledtråd. Lägre är bättre.</li>
           </ul>
         </details>
         <p className="fineprint">AI:n ser bara din ledtråd och hur många bokstäver ordet har — aldrig ordet.</p>
       </footer>
     </div>
-  );
-}
-
-function HistoryEntry({ entry, letterCount }) {
-  if (entry.type === 'rejected') {
-    return (
-      <li className="entry rejected">
-        <span className="clue-line"><s>{entry.clue}</s></span>
-        <span className="verdict">{entry.reason} <em>Kostade inget försök.</em></span>
-      </li>
-    );
-  }
-
-  if (entry.type === 'ai_failure') {
-    return (
-      <li className="entry failure">
-        <span className="clue-line">{entry.clue}</span>
-        {/* The loop exhausts on wrong length as well as on unreal words, so
-            this copy must cover both without claiming which one it was. The
-            player wrote a legal clue; the AI failed to answer it properly, so
-            this costs them nothing. */}
-        <span className="verdict">
-          {entry.guess ? <><s>{entry.guess}</s> — inget giltigt svar.</> : 'AI:n gav inget giltigt svar.'}{' '}
-          <em>Kostade inget försök — prova igen.</em>
-        </span>
-      </li>
-    );
-  }
-
-  const correct = entry.type === 'correct';
-  return (
-    <li className={correct ? 'entry correct' : 'entry wrong'}>
-      <span className="clue-line">{entry.clue}</span>
-      <LetterRow word={entry.guess} tone={correct ? 'correct' : 'wrong'} length={letterCount} />
-      {correct && <span className="verdict">Rätt! {entry.score} tecken.</span>}
-    </li>
   );
 }
