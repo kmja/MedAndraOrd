@@ -12,9 +12,19 @@ export function normalize(s) {
     .trim();
 }
 
-/** Count of unicode characters (the golf score of a clue). */
+/** Count of unicode characters. */
 export function charCount(s) {
   return [...String(s)].length;
+}
+
+/**
+ * The golf score of a clue: non-whitespace characters only, so spacing is
+ * free. "en lång ledtråd" and "enlångledtråd" cost the same, and players are
+ * never pushed into unreadable run-together clues to save a character.
+ * This is the number both the limit and the score are measured in.
+ */
+export function clueLength(s) {
+  return [...String(s ?? '')].filter((c) => !/\s/u.test(c)).length;
 }
 
 /** Count of letters in a word (what the guesser is told about the target). */
@@ -36,8 +46,11 @@ export function checkClueCode(clue, target, forbidden) {
   if (n.length === 0) {
     return { code: 'empty', reason: 'Ledtråden är tom.' };
   }
-  if (charCount(raw.trim()) > MAX_CLUE_LENGTH) {
-    return { code: 'too_long', reason: `Ledtråden får vara högst ${MAX_CLUE_LENGTH} tecken.` };
+  if (clueLength(raw) > MAX_CLUE_LENGTH) {
+    return {
+      code: 'too_long',
+      reason: `Ledtråden får vara högst ${MAX_CLUE_LENGTH} tecken (mellanslag räknas inte).`,
+    };
   }
   if (EMOJI_RE.test(raw)) {
     return { code: 'emoji', reason: 'Emoji är inte tillåtna i ledtråden.' };

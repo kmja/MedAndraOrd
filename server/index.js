@@ -35,7 +35,7 @@ app.get(/^\/(?!api\/).*/, (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Ordknapp körs på http://localhost:${PORT}`);
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('VARNING: ANTHROPIC_API_KEY är inte satt — ledtrådar kan inte bedömas.');
+  if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
+    console.warn('VARNING: GEMINI_API_KEY är inte satt — ledtrådar kan inte bedömas.');
   }
 });

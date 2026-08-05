@@ -13,6 +13,10 @@ async function api(path, options) {
 
 const chars = (s) => [...String(s ?? '')];
 
+// Mirrors clueLength() on the server: whitespace is free, so spacing a clue
+// out for readability never costs a point. The server is still authoritative.
+const clueLength = (s) => chars(s).filter((c) => !/\s/u.test(c)).length;
+
 /**
  * A row of crossword squares. The answer is shown filled — the player already
  * knows it; it's the AI that's blind — and each guess lands in its own row
@@ -60,7 +64,7 @@ export default function App() {
 
   const active = practice ?? state;
   const outOfAttempts = !practice && state.attemptsLeft <= 0;
-  const clueLen = chars(clue.trim()).length;
+  const clueLen = clueLength(clue);
   const tooLong = clueLen > state.maxClueLength;
   const solved = history.some((h) => h.type === 'correct');
 
@@ -259,7 +263,7 @@ export default function App() {
         <details>
           <summary>Regler</summary>
           <ul>
-            <li>Högst {state.maxClueLength} tecken.</li>
+            <li>Högst {state.maxClueLength} tecken. Mellanslag räknas inte.</li>
             <li>Svenska ord. Inga förkortningar eller bokstaveringstrick.</li>
             <li>Inte ordet självt, dess böjningar eller de spärrade orden.</li>
             <li>Inga översättningar av ordet till andra språk.</li>

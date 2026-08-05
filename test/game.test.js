@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  normalize, charCount, letterCount, checkClueCode, extractWord,
+  normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
   sanitizeName, dayNumber, MAX_CLUE_LENGTH,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
@@ -19,6 +19,14 @@ test('normalize lowercases and keeps å/ä/ö', () => {
 test('charCount counts unicode characters', () => {
   assert.equal(charCount('åäö'), 3);
   assert.equal(charCount('en bra ledtråd'), 14);
+});
+
+test('clueLength ignores whitespace — spacing is free', () => {
+  assert.equal(clueLength('kaninmat'), 8);
+  assert.equal(clueLength('kanin mat'), 8, 'a space must not cost a point');
+  assert.equal(clueLength('  kanin   mat  '), 8);
+  assert.equal(clueLength('kanin\tmat'), 8, 'tabs count as whitespace too');
+  assert.equal(clueLength('åäö'), 3);
 });
 
 test('letterCount counts only letters', () => {
@@ -207,16 +215,20 @@ test('judgeClue: referee failure fails open — play proceeds', async () => {
   const ai = { referee: async () => null, guesser: async () => 'morot', verifier: async () => true };
   const v = await judgeClue({ clue: 'kaninmat', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'correct');
-  assert.equal(v.score, charCount('kaninmat'));
+  assert.equal(v.score, clueLength('kaninmat'));
 });
 
-test('judgeClue: correct guess scores by clue character count', async () => {
+test('judgeClue: score counts non-whitespace characters only', async () => {
   const ai = mockAi({ guesses: ['morot'] });
+  // 11 characters, 10 of them non-whitespace: rejected under the old rule,
+  // legal now, and the space costs nothing.
   const v = await judgeClue({ clue: 'kanin godis', target: 'morot', forbidden: [], ai });
-  assert.equal(v.type, 'rejected'); // 11 chars — over the limit now
+  assert.equal(v.type, 'correct');
+  assert.equal(v.score, 10);
+
   const v2 = await judgeClue({ clue: 'kaningodis', target: 'morot', forbidden: [], ai });
   assert.equal(v2.type, 'correct');
-  assert.equal(v2.score, 10);
+  assert.equal(v2.score, 10, 'same letters, same score, with or without the space');
 });
 
 test('judgeClue: wrong valid guess is a miss', async () => {

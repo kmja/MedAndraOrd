@@ -3,7 +3,9 @@
 Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
 spärrade ord, och skriver en ledtråd (**max 10 tecken**) som ska få en AI att
 gissa ordet. Poängen är antalet tecken i den kortaste lyckade ledtråden —
-golfregler, lägre är bättre — med en topplista per ord.
+golfregler, lägre är bättre — med en topplista per ord. **Mellanslag räknas
+inte**, varken mot gränsen eller i poängen, så läsbar formatering är gratis och
+ingen tvingas skriva ihopskrivna ledtrådar för att spara ett tecken.
 
 **AI:n ser aldrig ordet.** Gissaren får bara ledtråden och antalet bokstäver.
 Det är spelets integritetsgaranti, och UI:t säger det rakt ut: en rätt gissning
@@ -35,8 +37,9 @@ aldrig spel. Om gissar-loopen tar slut visas gissningen genomstruken och
 **räknas som miss** — en regelbrytande gissning presenteras aldrig som giltig.
 
 Deterministiska kontroller i kod (`server/util.js`):
-- Max 10 tecken (`MAX_CLUE_LENGTH` i `server/util.js` — enda stället; UI:t hämtar
-  gränsen från `/api/state`).
+- Max 10 tecken, mellanslag oräknade (`MAX_CLUE_LENGTH` + `clueLength()` i
+  `server/util.js` — enda stället; UI:t hämtar gränsen från `/api/state` och
+  speglar räkningen enbart för att visa siffran).
 - Emoji avvisas via Unicode property-regex före alla API-anrop.
 - Målord/förbjudna ord som (normaliserad) delsträng i ledtråden.
 
@@ -82,7 +85,7 @@ Mekaniken är språkagnostisk: allt svenskt bor i de tre prompterna
 
 ```bash
 npm install
-export ANTHROPIC_API_KEY=sk-ant-...
+export GEMINI_API_KEY=...
 npm run build     # bygger frontend till web/dist
 npm start         # http://localhost:3000
 ```
@@ -90,6 +93,12 @@ npm start         # http://localhost:3000
 Utveckling: `npm run dev:server` + `npm run dev:web` (vite-proxy mot :3000).
 
 Tester (ren logik, inga API-anrop): `npm test`
+
+Röktest mot riktiga modellen (kostar någon tiondels öre): `npm run check:ai`.
+Kör det efter byte av modell, leverantör eller prompt — enhetstesterna mockar
+modellen, så inget annat bevisar att API-formen stämmer. Särskilt viktigt för
+domaren: den *failar öppet*, så en trasig domare ser likadan ut som en fungerande
+från UI:t. `check:ai` provar därför både en laglig och en olaglig ledtråd.
 
 ## Deploy
 
@@ -109,7 +118,7 @@ då finns inga `/api`-rutter. Låt `vercel.json` styra (preset: *Other*).
 
 Sätt sedan i Vercel → Settings → Environment Variables:
 
-- `ANTHROPIC_API_KEY` — krävs.
+- `GEMINI_API_KEY` — krävs.
 - KV-uppgifter, se nedan.
 
 **Lagring är inte valfri på Vercel.** Serverless har inget skrivbart filsystem
@@ -129,8 +138,8 @@ Enklare: `npm install && npm run build && npm start`. Då kör Express med
 
 | Variabel | Default | Beskrivning |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | Krävs. Hålls på servern. |
-| `ORDKNAPP_MODEL` | `claude-haiku-4-5` | Modell för alla tre rollerna (spec: "a small model suffices"). |
+| `GEMINI_API_KEY` | — | Krävs. Hålls på servern. (`GOOGLE_API_KEY` fungerar också.) |
+| `ORDKNAPP_MODEL` | `gemini-3.1-flash-lite` | Modell för alla tre rollerna. Se Modellval nedan. |
 | `PORT` | `3000` | |
 | `ORDKNAPP_DATA` | `data/store.json` | Lagringsfil (atomisk skrivning; byt ut `Store` mot en riktig databas i skala). |
 | `ORDKNAPP_PRACTICE` | på | Sätt till `0` för att stänga av övningsläget (”Slumpa ord”). |
@@ -145,6 +154,29 @@ Enklare: `npm install && npm run build && npm start`. Då kör Express med
 | `POST /api/clue {clue}` | Kör hela pipelinen. Svar: `rejected` (kostar inget) / `correct` / `wrong` / `ai_failure` (räknas som miss). |
 | `POST /api/clue {clue, practice, wordIndex}` | Övningsläge: samma bedömning, men inget registreras. Vägrar dagens ord. |
 | `POST /api/name {name}` | Sätter modererat topplistenamn. |
+
+## Modellval
+
+Alla tre rollerna kör samma modell: **Gemini 3.1 Flash-Lite**.
+
+Arbetet per anrop är litet — den största prompten (domaren) är ~320 tokens, och
+ledtråds-cachen tar bort upprepningar — så billigaste dugliga modell vinner.
+Ungefärlig kostnad: ~3 000 in-tokens och ~200 ut-tokens per spelare och dag,
+alltså i storleksordningen **1 USD per 1 000 spelardagar**. Claude Haiku 4.5,
+som projektet startade på, är ungefär 4× dyrare för samma arbete.
+
+Två saker att veta:
+
+- `gemini-2.5-flash-lite` är billigare på pappret men **avvecklas 2026-10-16** —
+  inte värt att bygga på.
+- Thinking-nivån sätts inte explicit i koden. 3.1 Flash-Lite defaultar till
+  `minimal`, vilket är rätt för de här tre klassificeringsuppgifterna. Sätt den
+  explicit först efter att fältnamnet verifierats mot en riktig nyckel: en
+  avvisad config gör att *alla* anrop failar, och domaren failar öppet.
+
+Den största besparingen är inte modellen utan att ta bort **verifieraren** och
+ersätta den med en ordboksuppslagning — det tar bort upp till en tredjedel av
+alla anrop och är dessutom mer träffsäkert.
 
 ## Kalibreringsrisker (kända)
 

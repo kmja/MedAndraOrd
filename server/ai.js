@@ -1,27 +1,80 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenAI } from '@google/genai';
 
 // The three AI roles. Everything Swedish lives in these prompts (plus the word
 // bank) — shipping another language means translating the three prompts and
 // supplying a word list; nothing structural changes.
 //
-// The API key never leaves this server. A small model suffices for these roles
-// (the handover spec's explicit cost call); override with ORDKNAPP_MODEL.
+// The API key never leaves this server.
+//
+// Model choice is a cost decision. The workload is tiny per call (the biggest
+// prompt is ~320 tokens) and the clue cache dedupes repeats, so the cheapest
+// capable model wins. Default: Gemini 3.1 Flash-Lite. Note that
+// gemini-2.5-flash-lite is cheaper still but retires 2026-10-16 — not worth
+// building on. Override with ORDKNAPP_MODEL to try a stronger model if the
+// referee's Swedish judgment proves too loose.
+//
+// Thinking level is deliberately left unset: 3.1 Flash-Lite already defaults
+// to "minimal", which is what these three classification-shaped tasks want.
+// Set it explicitly only after verifying the field against a live key —
+// a rejected config would make every call fail, and the referee fails OPEN.
 
-const MODEL = process.env.ORDKNAPP_MODEL || 'claude-haiku-4-5';
+const MODEL = process.env.ORDKNAPP_MODEL || 'gemini-3.1-flash-lite';
 const MAX_TOKENS = 300;
 
 let _client = null;
 function client() {
-  if (!_client) _client = new Anthropic(); // reads ANTHROPIC_API_KEY
+  if (!_client) {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    _client = new GoogleGenAI({ apiKey });
+  }
   return _client;
 }
 
-function firstText(response) {
-  for (const block of response.content) {
-    if (block.type === 'text') return block.text;
+/**
+ * Pull plain text out of a Gemini response. Exported for tests: this is the
+ * one piece of provider-shaped glue, and it must never throw — every caller
+ * treats null as "check unavailable" and fails open.
+ */
+export function textOf(response) {
+  if (!response) return null;
+  if (typeof response.text === 'string' && response.text.trim()) return response.text;
+  const parts = response.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    const joined = parts.map((p) => p?.text ?? '').join('').trim();
+    if (joined) return joined;
   }
-  return '';
+  return null;
 }
+
+/** Parse the referee's JSON verdict. Exported for tests. Null = unparseable. */
+export function parseRuling(text) {
+  if (!text) return null;
+  const match = String(text).match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[0]);
+    if (typeof parsed.legal !== 'boolean') return null;
+    return { legal: parsed.legal, reason: parsed.reason || null };
+  } catch {
+    return null;
+  }
+}
+
+function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false }) {
+  return client().models.generateContent({
+    model: MODEL,
+    contents,
+    config: {
+      systemInstruction: system,
+      maxOutputTokens,
+      temperature: 0, // same clue should tend to the same verdict
+      ...(json ? { responseMimeType: 'application/json' } : {}),
+    },
+  });
+}
+
+const userTurn = (text) => ({ role: 'user', parts: [{ text }] });
+const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
 
 /**
  * REFEREE — runs before the guesser and, unlike it, sees everything: target,
@@ -50,18 +103,8 @@ Förbjudna ord: ${forbidden.join(', ')}
 Ledtråd: "${clue}"`;
 
   try {
-    const response = await client().messages.create({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system,
-      messages: [{ role: 'user', content: user }],
-    });
-    const text = firstText(response);
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const parsed = JSON.parse(match[0]);
-    if (typeof parsed.legal !== 'boolean') return null;
-    return { legal: parsed.legal, reason: parsed.reason || null };
+    const response = await generate({ system, contents: [userTurn(user)], json: true });
+    return parseRuling(textOf(response));
   } catch (err) {
     console.error('referee failed:', err.message);
     return null; // fail open
@@ -85,32 +128,29 @@ Krav på din gissning:
 
 Svara ENDAST med ordet, inget annat.`;
 
-  const messages = [
-    { role: 'user', content: `Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver. Vad är ordet?` },
+  const contents = [
+    userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver. Vad är ordet?`),
   ];
   for (const fb of feedback) {
-    messages.push({ role: 'assistant', content: fb.guess });
+    contents.push(modelTurn(fb.guess));
     if (fb.problem === 'length') {
-      messages.push({
-        role: 'user',
-        content: `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver.`,
-      });
+      contents.push(
+        userTurn(
+          `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver.`,
+        ),
+      );
     } else {
-      messages.push({
-        role: 'user',
-        content: `"${fb.guess}" är inte ett etablerat svenskt ord i grundform. Gissa ett riktigt svenskt ord med exakt ${letterCount} bokstäver.`,
-      });
+      contents.push(
+        userTurn(
+          `"${fb.guess}" är inte ett etablerat svenskt ord i grundform. Gissa ett riktigt svenskt ord med exakt ${letterCount} bokstäver.`,
+        ),
+      );
     }
   }
 
   try {
-    const response = await client().messages.create({
-      model: MODEL,
-      max_tokens: 50,
-      system,
-      messages,
-    });
-    return firstText(response);
+    const response = await generate({ system, contents, maxOutputTokens: 50 });
+    return textOf(response);
   } catch (err) {
     console.error('guesser failed:', err.message);
     return null;
@@ -121,19 +161,20 @@ Svara ENDAST med ordet, inget annat.`;
  * VERIFIER — second opinion on whether a right-length guess is a real,
  * established Swedish word (instructions alone fail; the guesser has
  * confabulated words like "morotsnäsa"). Returns true/false, or null on
- * failure (callers fail open — and this whole role can be replaced by a
- * server-side dictionary lookup, which is strictly better).
+ * failure (callers fail open).
+ *
+ * This is the role to delete first: a server-side dictionary lookup is
+ * strictly better and removes up to a third of all model calls.
  */
 export async function verifier(word) {
   try {
-    const response = await client().messages.create({
-      model: MODEL,
-      max_tokens: 10,
+    const response = await generate({
       system:
         'Du avgör om ett ord är ett riktigt, etablerat svenskt ord i grundform. Svara ENDAST "JA" eller "NEJ".',
-      messages: [{ role: 'user', content: `Är "${word}" ett riktigt, etablerat svenskt ord i grundform?` }],
+      contents: [userTurn(`Är "${word}" ett riktigt, etablerat svenskt ord i grundform?`)],
+      maxOutputTokens: 10,
     });
-    const text = firstText(response).trim().toUpperCase();
+    const text = (textOf(response) ?? '').trim().toUpperCase();
     if (text.startsWith('JA')) return true;
     if (text.startsWith('NEJ')) return false;
     return null;
@@ -142,3 +183,5 @@ export async function verifier(word) {
     return null; // fail open
   }
 }
+
+export const MODEL_ID = MODEL;

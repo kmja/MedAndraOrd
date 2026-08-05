@@ -1,4 +1,4 @@
-import { checkClueCode, normalize, charCount, letterCount, extractWord } from './util.js';
+import { checkClueCode, normalize, clueLength, letterCount, extractWord } from './util.js';
 import * as defaultAi from './ai.js';
 
 export const MAX_ATTEMPTS = 5; // per player per day — unlimited retries make it a grind
@@ -90,7 +90,7 @@ export async function judgeClue({ clue, target, forbidden, ai = defaultAi }) {
     return { type: 'ai_failure', guess: guess ?? null };
   }
   if (normalize(guess) === normalize(target)) {
-    return { type: 'correct', guess, score: charCount(String(clue).trim()) };
+    return { type: 'correct', guess, score: clueLength(clue) };
   }
   return { type: 'wrong', guess };
 }
