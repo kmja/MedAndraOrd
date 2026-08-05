@@ -802,9 +802,10 @@ export default function App() {
             <li>Kortast vinner. Sikta under dagens snitt, och gå på rekordet om du kan.</li>
             <li>Svenska ord. Inga bokstaverings- eller rimtrick.</li>
             <li>
-              Ledtråden ska gå att läsa som svenska — ett ord, en sammansättning
-              eller en fras. En uppräkning av lösa associationer (”blöt plask barn”)
-              räknas inte. Antalet ord spelar ingen roll, bara att det hänger ihop.
+              Ledtråden ska hänga ihop språkligt — ett ord, en sammansättning
+              eller en fras. En uppräkning av fristående ord (”rep gnista damm”)
+              räknas inte. Antalet ord spelar ingen roll: ”blött plask” är en fras
+              och går bra.
             </li>
             <li>
               Beskriv ordet — peka inte bara ut det. Ett ordled som ska fyllas i

@@ -177,10 +177,29 @@ test('the guesser prompt requires a clue to read as Swedish', () => {
   // clue beat "blöt plask barn", so it is load-bearing.
   for (const prompt of [guesserSystemPrompt(6), batchGuesserSystemPrompt()]) {
     assert.match(prompt, /uppräkning/);
-    assert.match(prompt, /läsa högt som svenska/);
+    // The test the model is asked to apply must be the grammatical one. Phrased
+    // as "does this read as Swedish" it drifted into a vibe check, and a
+    // correctly-formed two-word phrase got refused.
+    assert.match(prompt, /Testet är grammatiskt/);
+    assert.match(prompt, /fras med ett huvudord/);
     // And it must say what it is NOT, or it becomes a ban on short clues.
-    assert.match(prompt, /handlar inte om längd eller antal ord/);
     assert.match(prompt, /[Ee]nsamt ord.*aldrig avvisas/);
+    assert.match(prompt, /skillnaden är strukturen, aldrig antalet ord/);
+    // A rejected example must not contain an allowed one as a prefix. "blöt
+    // plask barn" was the banned illustration, and "blött plask" — a correct
+    // adjective-noun phrase — got refused for looking like the start of it.
+    // The model pattern-matches the examples, so they have to be disjoint.
+    const allowed = [...prompt.matchAll(/"([^"]+)"\s+TILLÅTEN/g)].map((m) => m[1]);
+    const refused = [...prompt.matchAll(/"([^"]+)"\s+OTILLÅTEN/g)].map((m) => m[1]);
+    assert.ok(allowed.length >= 3 && refused.length >= 1, 'rule 4 needs a worked contrast');
+    for (const bad of refused) {
+      for (const good of allowed) {
+        assert.ok(
+          !bad.startsWith(good) && !good.startsWith(bad),
+          `"${good}" is a prefix of the refused example "${bad}" — the model will confuse them`,
+        );
+      }
+    }
   }
 });
 
