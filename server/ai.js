@@ -5,9 +5,9 @@ import Anthropic from '@anthropic-ai/sdk';
 // supplying a word list; nothing structural changes.
 //
 // The API key never leaves this server. A small model suffices for these roles
-// (the handover spec's explicit cost call); override with LEDTRADEN_MODEL.
+// (the handover spec's explicit cost call); override with ORDKNAPP_MODEL.
 
-const MODEL = process.env.LEDTRADEN_MODEL || 'claude-haiku-4-5';
+const MODEL = process.env.ORDKNAPP_MODEL || 'claude-haiku-4-5';
 const MAX_TOKENS = 300;
 
 let _client = null;
@@ -30,7 +30,7 @@ function firstText(response) {
  * a flaky check never blocks play).
  */
 export async function referee({ target, forbidden, clue }) {
-  const system = `Du är domare i ordspelet Ledtråden. En spelare skriver en ledtråd för att få en AI att gissa ett hemligt ord. Din uppgift är att avgöra om ledtråden är tillåten enligt reglerna.
+  const system = `Du är domare i ordspelet Ordknapp. En spelare skriver en ledtråd för att få en AI att gissa ett hemligt ord. Din uppgift är att avgöra om ledtråden är tillåten enligt reglerna.
 
 REGLER — ledtråden är OTILLÅTEN om den:
 1. Innehåller målordet, en böjning eller avledning av det (t.ex. plural, bestämd form, sammansättning).
@@ -75,7 +75,7 @@ Ledtråd: "${clue}"`;
  * Returns raw response text, or null on API failure.
  */
 export async function guesser({ clue, letterCount, feedback = [] }) {
-  const system = `Du är gissaren i ordspelet Ledtråden. Du får en ledtråd och ska gissa ett hemligt svenskt ord.
+  const system = `Du är gissaren i ordspelet Ordknapp. Du får en ledtråd och ska gissa ett hemligt svenskt ord.
 
 Krav på din gissning:
 - Exakt ETT ord.

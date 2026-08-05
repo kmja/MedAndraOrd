@@ -1,4 +1,4 @@
-# Ledtråden
+# Ordknapp
 
 Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
 spärrade ord, och skriver en ledtråd (**max 10 tecken**) som ska få en AI att
@@ -72,7 +72,7 @@ Två spärrar gör att knappen inte blir ett kryphål: övningsläget vägrar sp
 **dagens** ord (annars kunde man testa ledtrådar gratis och sedan skicka den
 vinnande på riktigt — hela dygnsgränsen vore verkningslös), och `wordIndex`
 valideras mot banken. Övningsdomar cacheas bara i minnet (bunden storlek) och
-samma rate limiting gäller. Sätt `LEDTRADEN_PRACTICE=0` för att ta bort läget
+samma rate limiting gäller. Sätt `ORDKNAPP_PRACTICE=0` för att ta bort läget
 helt ur en publik deploy.
 
 Mekaniken är språkagnostisk: allt svenskt bor i de tre prompterna
@@ -95,6 +95,10 @@ Tester (ren logik, inga API-anrop): `npm test`
 
 Spelet är en **server + frontend**, inte en statisk sajt: hela poängen är att
 API-nyckeln och poängräkningen bor på servern. Två vägar:
+
+Produktionsdomänen är **ordknapp.se**. Den är hårdkodad på ett enda ställe —
+`og:url`, `og:image` och `canonical` i `web/index.html` — eftersom scrapers
+kräver absoluta URL:er. Byter domänen måste de fyra raderna följa med.
 
 ### Vercel (serverless)
 
@@ -126,10 +130,10 @@ Enklare: `npm install && npm run build && npm start`. Då kör Express med
 | Variabel | Default | Beskrivning |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Krävs. Hålls på servern. |
-| `LEDTRADEN_MODEL` | `claude-haiku-4-5` | Modell för alla tre rollerna (spec: "a small model suffices"). |
+| `ORDKNAPP_MODEL` | `claude-haiku-4-5` | Modell för alla tre rollerna (spec: "a small model suffices"). |
 | `PORT` | `3000` | |
-| `LEDTRADEN_DATA` | `data/store.json` | Lagringsfil (atomisk skrivning; byt ut `Store` mot en riktig databas i skala). |
-| `LEDTRADEN_PRACTICE` | på | Sätt till `0` för att stänga av övningsläget (”Slumpa ord”). |
+| `ORDKNAPP_DATA` | `data/store.json` | Lagringsfil (atomisk skrivning; byt ut `Store` mot en riktig databas i skala). |
+| `ORDKNAPP_PRACTICE` | på | Sätt till `0` för att stänga av övningsläget (”Slumpa ord”). |
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | — | Redis över Upstash REST. Krävs för serverless; utan dem används minneslagring. |
 
 ## API

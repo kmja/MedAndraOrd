@@ -129,7 +129,7 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <h1>Ledtråden</h1>
+        <h1>Ordknapp</h1>
         <p className="tagline">
           Skriv en ledtråd så att AI:n gissar ordet. Kortast ledtråd vinner.
         </p>

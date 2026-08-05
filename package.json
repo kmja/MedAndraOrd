@@ -1,7 +1,7 @@
 {
-  "name": "ledtraden",
+  "name": "ordknapp",
   "version": "1.0.0",
-  "description": "Ledtråden — daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
+  "description": "Ordknapp — daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
   "type": "module",
   "engines": {
     "node": ">=18"

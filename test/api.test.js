@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // Point the store somewhere disposable before anything imports it — the store
 // is a module-level singleton created on first use, so this must run first.
-process.env.LEDTRADEN_DATA = path.join(os.tmpdir(), `ledtraden-test-${process.pid}.json`);
+process.env.ORDKNAPP_DATA = path.join(os.tmpdir(), `ledtraden-test-${process.pid}.json`);
 
 // Exercises the Vercel serverless entrypoints exactly as Vercel calls them:
 // a default-exported (req, res) handler with an already-parsed body.
@@ -36,7 +36,7 @@ test('api/state returns today\'s puzzle and issues a player cookie', async () =>
   assert.equal(res.body.attemptsLeft, 5);
 
   const cookie = res.headers['set-cookie'];
-  assert.match(cookie, /^ledtraden_pid=[a-f0-9]{32};/);
+  assert.match(cookie, /^ordknapp_pid=[a-f0-9]{32};/);
   assert.match(cookie, /HttpOnly/, 'the player id must not be readable from JS');
   assert.match(cookie, /SameSite=Lax/);
 });

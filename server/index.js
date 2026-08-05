@@ -34,8 +34,8 @@ app.get(/^\/(?!api\/).*/, (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Ledtråden körs på http://localhost:${PORT}`);
+  console.log(`Ordknapp körs på http://localhost:${PORT}`);
   if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('VARNING: ANTHROPIC_API_KEY är inte satt — telegram kan inte bedömas.');
+    console.warn('VARNING: ANTHROPIC_API_KEY är inte satt — ledtrådar kan inte bedömas.');
   }
 });

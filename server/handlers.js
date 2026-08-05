@@ -9,11 +9,11 @@ import { normalize, sanitizeName, todayInStockholm, MAX_CLUE_LENGTH } from './ut
 // both Express and Vercel functions provide. Keeping them here means there is
 // exactly one implementation of the rules, wired twice.
 
-const COOKIE = 'ledtraden_pid';
+const COOKIE = 'ordknapp_pid';
 
 // Practice mode ("Slumpa ord") is a testing aid: a random word run through the
-// same pipeline but recorded nowhere. Set LEDTRADEN_PRACTICE=0 to remove it.
-const PRACTICE_ENABLED = process.env.LEDTRADEN_PRACTICE !== '0';
+// same pipeline but recorded nowhere. Set ORDKNAPP_PRACTICE=0 to remove it.
+const PRACTICE_ENABLED = process.env.ORDKNAPP_PRACTICE !== '0';
 
 function getPlayerId(req, res) {
   const cookies = Object.fromEntries(
@@ -124,13 +124,13 @@ export async function clueHandler(req, res) {
   const store = getStore();
   const pid = getPlayerId(req, res);
   if (rateLimited(pid)) {
-    return send(res, 429, { error: 'Linjen är överbelastad. Vänta en stund innan nästa sändning.' });
+    return send(res, 429, { error: 'För många försök på kort tid. Vänta en stund.' });
   }
 
   const body = parseBody(req);
   const clue = typeof body.clue === 'string' ? body.clue.trim() : '';
-  if (!clue) return send(res, 400, { error: 'Inget telegram angivet.' });
-  if (clue.length > 200) return send(res, 400, { error: 'Telegrammet är för långt.' });
+  if (!clue) return send(res, 400, { error: 'Ingen ledtråd angiven.' });
+  if (clue.length > 200) return send(res, 400, { error: 'Ledtråden är för lång.' });
 
   const date = todayInStockholm();
   const today = wordForDate(date);
@@ -151,7 +151,7 @@ export async function clueHandler(req, res) {
         verdict = await judgeClue({ clue, target: entry.word, forbidden: entry.forbidden });
       } catch (err) {
         if (err instanceof AiUnavailableError) {
-          return send(res, 503, { error: 'Linjen är bruten — mottagaren svarar inte. Försök igen om en stund.' });
+          return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund.' });
         }
         console.error('judgeClue (practice) failed:', err);
         return send(res, 500, { error: 'Något gick fel.' });
@@ -164,7 +164,7 @@ export async function clueHandler(req, res) {
   const { index, word, forbidden } = today;
   const attempts = await store.getAttempts(date, pid);
   if (attempts >= MAX_ATTEMPTS) {
-    return send(res, 403, { error: 'Stationen har stängt för idag. Linjen öppnar åter imorgon.' });
+    return send(res, 403, { error: 'Du har inga försök kvar idag. Nytt ord imorgon.' });
   }
 
   const normClue = normalize(clue);
@@ -179,16 +179,16 @@ export async function clueHandler(req, res) {
       verdict = await judgeClue({ clue, target: word, forbidden });
     } catch (err) {
       if (err instanceof AiUnavailableError) {
-        return send(res, 503, { error: 'Linjen är bruten — mottagaren svarar inte. Försök igen om en stund; ingen taxa debiterades.' });
+        return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund — inget försök förbrukades.' });
       }
       console.error('judgeClue failed:', err);
-      return send(res, 500, { error: 'Något gick fel. Ingen taxa debiterades.' });
+      return send(res, 500, { error: 'Något gick fel. Inget försök förbrukades.' });
     }
     await store.cacheVerdict(date, index, normClue, verdict);
   }
 
-  // Refused telegrams are never sent, so they cost nothing. Everything that
-  // reached the guesser costs one attempt — including AI failures.
+  // Rejected clues never reach the guesser, so they cost nothing. Everything
+  // that did costs one attempt — including AI failures.
   let newAttempts = attempts;
   let best = await store.getBest(date, pid);
   if (verdict.type !== 'rejected') {

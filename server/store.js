@@ -240,7 +240,7 @@ export function getStore() {
     _store = new MemoryStore();
   } else {
     _store = new FileStore(
-      process.env.LEDTRADEN_DATA || path.join(process.cwd(), 'data', 'store.json'),
+      process.env.ORDKNAPP_DATA || path.join(process.cwd(), 'data', 'store.json'),
     );
   }
   return _store;
