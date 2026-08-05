@@ -214,6 +214,12 @@ export default function App() {
 
       <section className="card" hidden={!!practice}>
         <h2>Dagens billigaste telegram</h2>
+        {state.durable === false && (
+          <p className="warn">
+            Liggaren är inte kopplad till något arkiv — resultat försvinner när servern
+            startar om. Lägg till en KV-databas.
+          </p>
+        )}
         {state.leaderboard.length === 0 ? (
           <p className="muted">Inget lyckat telegram har sänts idag. Linjen är er.</p>
         ) : (

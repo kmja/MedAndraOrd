@@ -240,6 +240,14 @@ h2 {
 .name-form { display: flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--rule); }
 
 .error { color: var(--stamp); }
+.warn {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--stamp);
+  border: 1px dashed var(--stamp);
+  padding: 8px 10px;
+  margin: 0 0 12px;
+}
 .muted { color: var(--muted); }
 footer p { font-size: 0.82rem; }
 .fineprint { font-size: 0.74rem; opacity: 0.85; }

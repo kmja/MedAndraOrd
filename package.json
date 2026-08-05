@@ -1,8 +1,11 @@
 {
   "name": "ledtraden",
   "version": "1.0.0",
-  "description": "Ledtråden — daily AI word game (Swedish). Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
+  "description": "Ledtråden — daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev:server": "node --watch server/index.js",
@@ -12,12 +15,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.0",
-    "express": "^4.21.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^4.7.0",
+    "express": "^4.21.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "vite": "^6.0.0"
+    "vite": "^6.4.3"
   }
 }

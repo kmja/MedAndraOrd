@@ -1,0 +1,119 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+
+// Point the store somewhere disposable before anything imports it — the store
+// is a module-level singleton created on first use, so this must run first.
+process.env.LEDTRADEN_DATA = path.join(os.tmpdir(), `ledtraden-test-${process.pid}.json`);
+
+// Exercises the Vercel serverless entrypoints exactly as Vercel calls them:
+// a default-exported (req, res) handler with an already-parsed body.
+// These are the paths no local Express smoke test covers.
+
+function mockRes() {
+  const res = {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    setHeader(k, v) { this.headers[k.toLowerCase()] = v; },
+    end(payload) { this.body = payload ? JSON.parse(payload) : null; },
+  };
+  return res;
+}
+
+const mockReq = (over = {}) => ({ method: 'GET', headers: {}, body: undefined, ...over });
+
+test('api/state returns today\'s puzzle and issues a player cookie', async () => {
+  const { default: handler } = await import('../api/state.js');
+  const res = mockRes();
+  await handler(mockReq(), res);
+
+  assert.equal(res.statusCode, 200);
+  assert.ok(res.body.word, 'expected a word');
+  assert.equal(res.body.forbidden.length, 5);
+  assert.equal(res.body.maxClueLength, 10);
+  assert.equal(res.body.attemptsLeft, 5);
+
+  const cookie = res.headers['set-cookie'];
+  assert.match(cookie, /^ledtraden_pid=[a-f0-9]{32};/);
+  assert.match(cookie, /HttpOnly/, 'the player id must not be readable from JS');
+  assert.match(cookie, /SameSite=Lax/);
+});
+
+test('api/state never leaks the answer through a scoring field', async () => {
+  const { default: handler } = await import('../api/state.js');
+  const res = mockRes();
+  await handler(mockReq(), res);
+  // The player is shown the word — it's the guesser that is blind — but the
+  // response must not carry anything that lets a client fake a score.
+  assert.equal(res.body.best, null);
+  assert.ok(!('score' in res.body));
+});
+
+test('api/random serves a practice word that is never today\'s', async () => {
+  const [{ default: randomHandler }, { default: stateHandler }] = await Promise.all([
+    import('../api/random.js'),
+    import('../api/state.js'),
+  ]);
+  const stateRes = mockRes();
+  await stateHandler(mockReq(), stateRes);
+
+  for (let i = 0; i < 25; i++) {
+    const res = mockRes();
+    await randomHandler(mockReq(), res);
+    assert.notEqual(res.body.word, stateRes.body.word, 'practice must not serve the live word');
+    assert.equal(typeof res.body.wordIndex, 'number');
+  }
+});
+
+test('api/clue rejects an empty telegram without calling the model', async () => {
+  const { default: handler } = await import('../api/clue.js');
+  const res = mockRes();
+  await handler(mockReq({ method: 'POST', body: { clue: '   ' } }), res);
+  assert.equal(res.statusCode, 400);
+});
+
+test('api/clue refuses practice on today\'s word — the daily limit loophole', async () => {
+  const [{ default: clueHandler }, { wordForDate }, { todayInStockholm }] = await Promise.all([
+    import('../api/clue.js'),
+    import('../server/words.js'),
+    import('../server/util.js'),
+  ]);
+  const todayIndex = wordForDate(todayInStockholm()).index;
+  const res = mockRes();
+  await clueHandler(
+    mockReq({ method: 'POST', body: { clue: 'test', practice: true, wordIndex: todayIndex } }),
+    res,
+  );
+  assert.equal(res.statusCode, 403);
+});
+
+test('api/clue validates wordIndex against the bank', async () => {
+  const { default: handler } = await import('../api/clue.js');
+  for (const wordIndex of [-1, 99999, 'abc']) {
+    const res = mockRes();
+    await handler(mockReq({ method: 'POST', body: { clue: 'test', practice: true, wordIndex } }), res);
+    assert.equal(res.statusCode, 400, `wordIndex ${wordIndex} should be rejected`);
+  }
+});
+
+test('api/clue accepts a stringified body (Vercel does not always parse)', async () => {
+  const { default: handler } = await import('../api/clue.js');
+  const res = mockRes();
+  await handler(mockReq({ method: 'POST', body: JSON.stringify({ clue: '' }) }), res);
+  assert.equal(res.statusCode, 400, 'a string body must parse, not crash');
+});
+
+test('api/name moderates before storing', async () => {
+  const { default: handler } = await import('../api/name.js');
+
+  const bad = mockRes();
+  await handler(mockReq({ method: 'POST', body: { name: 'jävlaKalle' } }), bad);
+  assert.equal(bad.statusCode, 400);
+
+  const ok = mockRes();
+  await handler(mockReq({ method: 'POST', body: { name: '  Anna <b>  ' } }), ok);
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.body.name, 'Anna b');
+});

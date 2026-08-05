@@ -89,6 +89,36 @@ Utveckling: `npm run dev:server` + `npm run dev:web` (vite-proxy mot :3000).
 
 Tester (ren logik, inga API-anrop): `npm test`
 
+## Deploy
+
+Spelet är en **server + frontend**, inte en statisk sajt: hela poängen är att
+API-nyckeln och poängräkningen bor på servern. Två vägar:
+
+### Vercel (serverless)
+
+`api/*.js` är tunna omslag runt samma handlers som Express använder, och
+`vercel.json` bygger frontend med Vite till `web/dist`. Viktigt: välj **inte**
+Vite-presetet i Vercels import-dialog — det publicerar bara statiska filer och
+då finns inga `/api`-rutter. Låt `vercel.json` styra (preset: *Other*).
+
+Sätt sedan i Vercel → Settings → Environment Variables:
+
+- `ANTHROPIC_API_KEY` — krävs.
+- KV-uppgifter, se nedan.
+
+**Lagring är inte valfri på Vercel.** Serverless har inget skrivbart filsystem
+som överlever, så utan databas hamnar topplista och försöksgräns i minnet och
+nollställs vid varje kallstart (spelare får obegränsat med försök). Lägg till en
+Redis-integration — Vercel Marketplace → Upstash Redis räcker — så injiceras
+`KV_REST_API_URL` och `KV_REST_API_TOKEN` automatiskt och `KvStore` tar över.
+`UPSTASH_REDIS_REST_URL`/`_TOKEN` fungerar likvärdigt. UI:t visar en varning så
+länge lagringen är flyktig.
+
+### Vanlig Node-host (Railway, Render, Fly, VPS)
+
+Enklare: `npm install && npm run build && npm start`. Då kör Express med
+`FileStore` (JSON-fil med atomisk skrivning) och ingen extern databas behövs.
+
 ### Miljövariabler
 
 | Variabel | Default | Beskrivning |
@@ -98,6 +128,7 @@ Tester (ren logik, inga API-anrop): `npm test`
 | `PORT` | `3000` | |
 | `LEDTRADEN_DATA` | `data/store.json` | Lagringsfil (atomisk skrivning; byt ut `Store` mot en riktig databas i skala). |
 | `LEDTRADEN_PRACTICE` | på | Sätt till `0` för att stänga av övningsläget (”Slumpa ord”). |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | — | Redis över Upstash REST. Krävs för serverless; utan dem används minneslagring. |
 
 ## API
 
