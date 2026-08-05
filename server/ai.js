@@ -208,12 +208,14 @@ export async function guardedGuesser({ clue, letterCount, feedback = [], onFailu
  * easier than the rest of the bank, for a reason with nothing to do with the
  * clue. Every illustration below therefore uses words that are not targets.
  */
-export function guesserSystemPrompt(letterCount) {
-  return `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
+// The rulebook, written once. The single and batched guessers must judge a
+// clue identically — the batched one exists to measure the same game more
+// cheaply, and two prompts that drifted apart would measure two different
+// games. So both are built from these pieces.
 
-Spelet går ut på att säga så mycket som möjligt med så få tecken som möjligt, och spelarna tävlar om att vara kortast. Därför är ledtrådarna sällan raka definitioner. Räkna med det motsatta: omskrivningar, oväntade bilder, egna påhittade sammansättningar, sneda infallsvinklar och kluriga associationer — ungefär som ledtrådarna i ett kryptiskt korsord. Att spelaren tänker utanför boxen är meningen med spelet, inte ett problem.
+const CLUE_CULTURE = `Spelet går ut på att säga så mycket som möjligt med så få tecken som möjligt, och spelarna tävlar om att vara kortast. Därför är ledtrådarna sällan raka definitioner. Räkna med det motsatta: omskrivningar, oväntade bilder, egna påhittade sammansättningar, sneda infallsvinklar och kluriga associationer — ungefär som ledtrådarna i ett kryptiskt korsord. Att spelaren tänker utanför boxen är meningen med spelet, inte ett problem.`;
 
-STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
+const CLUE_RULES = `STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. kex, jobb, tv) är tillåtna.
 2. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller uttal i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
 3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "gräv" för att leda till grävskopa). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
@@ -224,16 +226,126 @@ Lika viktigt: **egennamn och kända exempel på kategorin är TILLÅTNA** — "n
 
 Detsamma gäller **förkortade** exempel: "sept" och "okt" är samma drag som "nilen", och ska bedömas lika. Förkortningar är inte förbjudna. Det går ändå inte att veta om "jan" är tänkt som en förkortning eller som ett namn, och en regel som inte går att tillämpa konsekvent gör mer skada än nytta — samma ledtråd måste få samma dom varje gång.
 
-Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–3.
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–3.`;
+
+const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.`;
+
+/**
+ * The guesser's system prompt. Exported so it can be asserted against.
+ *
+ * One property matters enough to be a test: no word from the bank may appear
+ * here. The guesser is blind, but this text is in its context on every call,
+ * and a target named here — even as an example of a *rule* — is a target the
+ * model can reach for on a vague clue. That would make those words quietly
+ * easier than the rest of the bank, for a reason with nothing to do with the
+ * clue. Every illustration therefore uses words that are not targets.
+ */
+export function guesserSystemPrompt(letterCount) {
+  return `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
+
+${CLUE_CULTURE}
+
+${CLUE_RULES}
 
 STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt ${letterCount} bokstäver. Hitta inte på ord.
 
-Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.
+${GUESS_FORM}
 
 Svara ENDAST med JSON:
 {"legal": true, "guess": "ordet"}
 eller
 {"legal": false, "reason": "kort motivering på svenska"}`;
+}
+
+/**
+ * Parse the batched reply into a Map of id -> ruling. Exported for tests.
+ *
+ * A missing or malformed entry is simply absent from the map, and the caller
+ * re-asks for those one at a time. Batching is an optimisation; it must never
+ * be able to turn a clue into a wrong answer, only into a slower one.
+ */
+export function parseBatchGuesses(text) {
+  if (!text) return null;
+  const match = String(text).match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  let answers;
+  try {
+    answers = JSON.parse(match[0]).answers;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(answers)) return null;
+
+  const out = new Map();
+  for (const a of answers) {
+    const id = Number(a?.id);
+    if (!Number.isInteger(id) || typeof a?.legal !== 'boolean') continue;
+    if (a.legal === false) {
+      out.set(id, { legal: false, reason: a.reason || null });
+    } else if (typeof a.guess === 'string' && a.guess.trim()) {
+      out.set(id, { legal: true, guess: a.guess });
+    }
+  }
+  return out;
+}
+
+/**
+ * Judge and guess several clues in one call.
+ *
+ * `items` is [{ id, clue, letterCount }]. Returns a Map of id -> ruling, or
+ * null if the call itself failed. Ids missing from the map got no usable
+ * answer and must be re-asked individually.
+ */
+export async function batchedGuesser({ items, onFailure }) {
+  if (!items?.length) return new Map();
+  const lines = items.map((it) => `${it.id}. Ledtråd: "${it.clue}" — ${it.letterCount} bokstäver`);
+
+  try {
+    const response = await generate({
+      system: batchGuesserSystemPrompt(),
+      contents: [userTurn(lines.join('\n'))],
+      // Each answer is short, but a truncated reply loses the whole batch.
+      maxOutputTokens: 120 * items.length + 200,
+      json: true,
+      onFailure,
+    });
+    return parseBatchGuesses(textOf(response));
+  } catch (err) {
+    console.error(`batchedGuesser failed (${classifyApiError(err)}):`, err.message);
+    return null;
+  }
+}
+
+/**
+ * The same job, several clues at a time. Exported for tests.
+ *
+ * This is a measurement shortcut, not a second way to play: it exists so the
+ * probe can cover a word in a few calls instead of one per clue. It is NOT
+ * used by the live game, where every clue is judged alone.
+ *
+ * The honesty problem is that the clues sit in one context, so the model can
+ * read them against each other — several clues circling the same idea give
+ * away far more together than any of them does alone. The instruction below
+ * pushes against that, but an instruction cannot remove information from a
+ * context window, so it can only reduce the leak and never close it. That is
+ * why the probe can measure the difference (--batch-check) rather than
+ * assuming it away.
+ */
+export function batchGuesserSystemPrompt() {
+  return `Du är gissaren i ordspelet Ordknapp. Du får flera ledtrådar på en gång, till olika hemliga svenska ord. Du får aldrig se orden.
+
+${CLUE_CULTURE}
+
+VIKTIGAST AV ALLT: ledtrådarna kommer från olika spelare som inte kan se varandras ledtrådar, och de gäller olika ord. Behandla varje ledtråd helt för sig. Läs ledtråden och dess bokstavsantal — inget annat. Låt inte de andra ledtrådarna påverka din gissning, och dra inga slutsatser av att flera ledtrådar råkar ha samma bokstavsantal eller verka handla om liknande saker. Gissa som om du bara hade sett den ena.
+
+${CLUE_RULES}
+
+STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt det antal bokstäver som anges för just den ledtråden. Hitta inte på ord.
+
+${GUESS_FORM}
+
+Svara ENDAST med JSON, ett svar per ledtråd, med samma id som i frågan:
+{"answers": [{"id": 1, "legal": true, "guess": "ordet"}, {"id": 2, "legal": false, "reason": "kort motivering"}]}`;
 }
 
 // Two corrections, both about the guess breaking its own rules: wrong length

@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { textOf, parseRuling, guesserSystemPrompt, classifyApiError, retryDelayMs } from '../server/ai.js';
+import {
+  textOf, parseRuling, guesserSystemPrompt, batchGuesserSystemPrompt,
+  parseBatchGuesses, classifyApiError, retryDelayMs,
+} from '../server/ai.js';
 import { WORDS } from '../server/words.js';
 import { normalize } from '../server/util.js';
 
@@ -98,19 +101,65 @@ test('the guesser prompt names no word from the bank', () => {
   // phrased around.
   const UNAVOIDABLE = new Set(['vad']);
 
-  const prompt = guesserSystemPrompt(6).toLowerCase();
-  const words = prompt.match(/\p{L}+/gu) ?? [];
-  const mentioned = new Set(words);
+  // Both prompts, since they share a rulebook and either one reaches a model.
+  for (const [name, prompt] of [
+    ['gissarprompten', guesserSystemPrompt(6)],
+    ['batch-prompten', batchGuesserSystemPrompt()],
+  ]) {
+    const mentioned = new Set(prompt.toLowerCase().match(/\p{L}+/gu) ?? []);
+    const leaked = WORDS.map((e) => e.word)
+      .filter((w) => !UNAVOIDABLE.has(normalize(w)))
+      .filter((w) => mentioned.has(normalize(w)));
+    assert.deepEqual(
+      leaked,
+      [],
+      `Ord ur banken förekommer i ${name}: ${leaked.join(', ')}. ` +
+        'Byt exemplen mot ord som inte är målord.',
+    );
+  }
+});
 
-  const leaked = WORDS.map((e) => e.word)
-    .filter((w) => !UNAVOIDABLE.has(normalize(w)))
-    .filter((w) => mentioned.has(normalize(w)));
-  assert.deepEqual(
-    leaked,
-    [],
-    `Ord ur banken förekommer i gissarprompten: ${leaked.join(', ')}. ` +
-      'Byt exemplen mot ord som inte är målord.',
-  );
+test('both guessers are given the same rulebook', () => {
+  // Batching exists to measure the same game more cheaply. If the two prompts
+  // drifted apart they would measure two different games, and the calibration
+  // that compares them would be comparing the wrong thing.
+  const single = guesserSystemPrompt(6);
+  const batch = batchGuesserSystemPrompt();
+  for (const rule of [
+    'Inte är svenska',
+    'Bokstaverar eller rimmar',
+    'lucka att fylla i',
+    'egennamn och kända exempel',
+    'Var generös i övrigt',
+  ]) {
+    assert.ok(single.includes(rule), `single prompt missing: ${rule}`);
+    assert.ok(batch.includes(rule), `batch prompt missing: ${rule}`);
+  }
+  // And the batch prompt must additionally push against cross-reading.
+  assert.match(batch, /Behandla varje ledtråd helt för sig/);
+});
+
+test('parseBatchGuesses keeps clean answers and drops the rest', () => {
+  // A dropped id is re-asked one at a time, so a malformed entry costs a call
+  // and never a wrong verdict. Batching must not be able to turn a clue into
+  // the wrong answer, only into a slower one.
+  const got = parseBatchGuesses(`{"answers":[
+    {"id":1,"legal":true,"guess":"stövel"},
+    {"id":2,"legal":false,"reason":"Rim."},
+    {"id":3,"legal":true},
+    {"id":4,"legal":true,"guess":"  "},
+    {"legal":true,"guess":"utan id"},
+    {"id":"sex","legal":true,"guess":"fel id"}
+  ]}`);
+  assert.deepEqual([...got.keys()], [1, 2]);
+  assert.deepEqual(got.get(1), { legal: true, guess: 'stövel' });
+  assert.deepEqual(got.get(2), { legal: false, reason: 'Rim.' });
+});
+
+test('parseBatchGuesses returns null when the whole reply is unusable', () => {
+  for (const bad of [null, '', 'ingen json', '{"answers":"nej"}', '{"nope":[]}']) {
+    assert.equal(parseBatchGuesses(bad), null, `expected null for ${JSON.stringify(bad)}`);
+  }
 });
 
 test('the guesser prompt states the letter count it was given', () => {

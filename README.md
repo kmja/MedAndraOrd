@@ -267,6 +267,36 @@ npm run probe -- --new "kikare:"        utan spärrlista, för att se vad som vi
 Fler flaggor: `--clues <n>` (antal kandidatledtrådar, default 12),
 `--out <mapp>` (var resultaten hamnar) och `--no-save`.
 
+**Batchning.** Normalt kostar en körning ett anrop per ledtråd, för det är så
+spelet faktiskt fungerar: varje ledtråd bedöms ensam. `--batch 6` bedömer sex
+åt gången och gör körningen mycket billigare — men ledtrådarna delar då kontext,
+och flera ledtrådar som cirklar samma sak avslöjar tillsammans mycket mer än
+någon av dem gör ensam. En ledtråd som bara "fungerar" så är ingen ledtråd som
+fungerar.
+
+Instruktionen i batch-prompten säger åt modellen att bedöma varje ledtråd för
+sig, men en instruktion kan inte ta bort information ur en kontext. Därför
+gissar vi inte: `--batch-check` kör samma ledtrådar båda vägarna och mäter
+skillnaden.
+
+```
+npm run probe -- --batch-check --batch 6 stövel
+```
+
+```
+  en i taget    6 lösta · kortaste 5 · BRA
+  batch (6)     9 lösta · kortaste 5 · BRA
+
+  Batch löste 3 fler. Ledtrådarna hjälper varandra i delad kontext:
+  mätningen blir för optimistisk och gränserna för snäva.
+
+  Löstes BARA i batch (misstänkta): "lerig vandring", "ridutrustning"
+```
+
+Visar kalibreringen ingen skillnad går det bra att köra `--batch` för
+screening. Visar den en skillnad: använd inte batch för att sätta `limit`, för
+en för optimistisk mätning ger en gräns som riktiga spelare inte kan nå.
+
 **Resultaten sparas automatiskt** i `probe-results/`, en fil per ord med en post
 per körning. Det är själva poängen med kurering: kör, spärra en väg, kör igen,
 och se om ordet faktiskt blev svårare. Andra körningen av ett ord skriver ut

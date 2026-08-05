@@ -47,6 +47,7 @@ import { judgeClue, AiUnavailableError } from '../server/game.js';
 import * as serverAi from '../server/ai.js';
 import { classifyApiError, retryDelayMs } from '../server/ai.js';
 import { isSwedishWord } from '../server/dictionary.js';
+import { checkClueCode, extractWord } from '../server/util.js';
 import { clueLength, letterCount, normalize, suggestedLimit, clueLimitFor, CLUE_LIMIT_CEILING } from '../server/util.js';
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ import { clueLength, letterCount, normalize, suggestedLimit, clueLimitFor, CLUE_
 const argv = process.argv.slice(2);
 const opts = {
   clues: 12, dry: false, json: null, bank: 0, words: [], custom: [],
-  out: 'probe-results', save: true,
+  out: 'probe-results', save: true, batch: 0, batchCheck: false,
 };
 
 for (let i = 0; i < argv.length; i++) {
@@ -67,6 +68,8 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--no-save') opts.save = false;
   else if (a === '--bank') opts.bank = Number(argv[++i] || 10);
   else if (a === '--new') opts.custom.push(argv[++i]);
+  else if (a === '--batch') opts.batch = Number(argv[i + 1]?.match(/^\d+$/) ? argv[++i] : 6);
+  else if (a === '--batch-check') opts.batchCheck = true;
   else if (a.startsWith('--')) fail(`Okänd flagga: ${a}`);
   else opts.words.push(a);
 }
@@ -84,7 +87,10 @@ Flaggor:
   --clues <n>      antal kandidatledtrådar per ord (default 12)
   --out <mapp>     var resultaten sparas (default probe-results/)
   --no-save        spara inget
-  --json <fil>     extra samlad dump av just den här körningen`);
+  --json <fil>     extra samlad dump av just den här körningen
+  --batch [n]      bedöm n ledtrådar per anrop (default 6) — billigare, men
+                   ledtrådarna delar kontext, så mätningen kan bli optimistisk
+  --batch-check    kör samma ledtrådar båda vägarna och mät skillnaden`);
   process.exit(2);
 }
 
@@ -343,6 +349,91 @@ Spärrade ord: ${forbidden.join(', ') || '(inga)'}`;
 }
 
 // ---------------------------------------------------------------------------
+// batched judging
+//
+// The probe's cost is one call per clue, because that is how the real game
+// works: each clue is judged alone. Batching asks the model to judge several
+// at once, which is cheaper but not the same measurement — the clues share a
+// context, so the model can read them against each other. Several clues
+// circling the same idea give away far more together than any of them does
+// alone, and a clue that only "works" that way is not a clue that works.
+//
+// So batching is opt-in, and --batch-check measures what it costs in accuracy
+// rather than leaving it to be assumed either way.
+
+/** The deterministic half, unchanged: free, and identical in both modes. */
+function codeVerdict(item) {
+  const v = checkClueCode(item.clue, item.entry.word, item.entry.forbidden, CLUE_LIMIT_CEILING);
+  return v ? { type: 'rejected', reason: v.reason, source: 'code' } : null;
+}
+
+/** Turn one batched ruling into a verdict, or null if it needs re-asking. */
+function verdictFromRuling(ruling, entry) {
+  if (!ruling) return null;
+  if (ruling.legal === false) {
+    return { type: 'rejected', reason: ruling.reason || 'Ledtråden bryter mot reglerna.', source: 'referee' };
+  }
+  const guess = extractWord(ruling.guess);
+  if (!guess) return null;
+  if (letterCount(guess) !== letterCount(entry.word)) return null; // wrong length — re-ask, with feedback
+  if (normalize(guess) === normalize(entry.word)) return { type: 'correct', guess };
+  if (isSwedishWord(guess) === false) return null;                 // confabulated — re-ask
+  return { type: 'wrong', guess };
+}
+
+/**
+ * Judge many clues with as few calls as possible.
+ *
+ * Anything the batch cannot answer cleanly falls through to the single-clue
+ * path, which already knows how to re-prompt a wrong-length or invented guess.
+ * Batching may therefore make a run cheaper or slower, but never wrong in a
+ * way the single path would not also be.
+ */
+async function judgeBatched(items, size) {
+  const out = new Map();
+  const pending = [];
+
+  for (const item of items) {
+    const code = codeVerdict(item);
+    if (code) out.set(item.id, code);
+    else pending.push(item);
+  }
+
+  for (let i = 0; i < pending.length; i += size) {
+    if (quota.stop) break;
+    const chunk = pending.slice(i, i + size);
+    const call = await withQuotaRetry(`batch ${1 + i / size}`, () =>
+      serverAi.batchedGuesser({
+        items: chunk.map((it) => ({ id: it.id, clue: it.clue, letterCount: letterCount(it.entry.word) })),
+        onFailure: (kind) => { if (kind === 'rate_limit') quota.absorbed++; },
+      }));
+
+    const rulings = call.ok ? call.value : null;
+    for (const it of chunk) {
+      const v = rulings ? verdictFromRuling(rulings.get(it.id), it.entry) : null;
+      if (v) out.set(it.id, v);
+      else it.needsSingle = true;
+    }
+  }
+
+  // Everything the batch could not settle, done properly one at a time.
+  for (const it of pending) {
+    if (out.has(it.id)) continue;
+    if (quota.stop) break;
+    try {
+      out.set(it.id, await judgeClue({
+        clue: it.clue, target: it.entry.word, forbidden: it.entry.forbidden,
+        maxLength: CLUE_LIMIT_CEILING, ai: patientAi,
+      }));
+    } catch (err) {
+      if (!(err instanceof AiUnavailableError)) throw err;
+      out.set(it.id, { type: 'ai_unavailable', guess: null });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // route analysis: what did the winning clues have in common?
 
 /**
@@ -475,11 +566,9 @@ function printDelta(word, prev, now) {
 
 // ---------------------------------------------------------------------------
 
-async function probe(entry) {
-  const clues = await proposeClues(entry);
+/** Judge one word's clues one at a time — how the real game works. */
+async function judgeOneByOne(entry, clues) {
   const results = [];
-  let unavailable = 0;
-
   for (const { clue, why } of clues) {
     try {
       // Measured against the ceiling, not the word's current limit. Probing
@@ -496,19 +585,27 @@ async function probe(entry) {
       // it, keep going, and say so in the summary — a rate computed from a run
       // that half-failed must not read as a finding.
       if (!(err instanceof AiUnavailableError)) throw err;
-      unavailable++;
       results.push({ clue, why, len: clueLength(clue), type: 'ai_unavailable', guess: null });
     }
   }
+  return results;
+}
 
-  // Only clues the model actually answered can say anything about the word.
+/** The same clues, several per call. */
+async function judgeInBatches(entry, clues, size) {
+  const items = clues.map((c, i) => ({ id: i + 1, clue: c.clue, entry }));
+  const verdicts = await judgeBatched(items, size);
+  return clues.map((c, i) => {
+    const v = verdicts.get(i + 1) ?? { type: 'ai_unavailable', guess: null };
+    return { clue: c.clue, why: c.why, len: clueLength(c.clue), type: v.type, guess: v.guess, reason: v.reason };
+  });
+}
+
+function summarise(clues, results) {
   const answered = results.filter((r) => r.type !== 'ai_unavailable');
   const solved = answered.filter((r) => r.type === 'correct').sort((a, b) => a.len - b.len);
   const rate = answered.length ? Math.round((solved.length / answered.length) * 100) : 0;
   const shortest = solved[0] ?? null;
-  // A verdict is a claim about the word. Too few answers and it is really a
-  // claim about the run — say so instead of printing "FÖR SVÅR" for a word
-  // that mostly hit the quota.
   const thin = answered.length < Math.max(4, clues.length * 0.6);
   const verdict = thin
     ? 'OSÄKER (för få svar)'
@@ -516,11 +613,47 @@ async function probe(entry) {
     : shortest.len <= 4 ? 'FÖR LÄTT'
     : rate >= 90 ? 'FÖR LÄTT (allt löser)'
     : 'BRA';
-  return { entry, results, solved, shortest, rate, verdict, unavailable, answered: answered.length, routes: routes(solved, entry.forbidden) };
+  return { answered, solved, rate, shortest, verdict, unavailable: results.length - answered.length };
+}
+
+async function probe(entry) {
+  const clues = await proposeClues(entry);
+
+  if (opts.batchCheck) {
+    // The same clues, both ways. Anything the two disagree about is the cost
+    // of batching, stated rather than assumed.
+    const single = summarise(clues, await judgeOneByOne(entry, clues));
+    const batched = summarise(clues, await judgeInBatches(entry, clues, opts.batch || 6));
+    return { entry, clues, calibration: { single, batched }, ...single, results: [] };
+  }
+
+  const results = opts.batch
+    ? await judgeInBatches(entry, clues, opts.batch)
+    : await judgeOneByOne(entry, clues);
+
+  // A verdict is a claim about the word. Too few answers and it is really a
+  // claim about the run — say so instead of printing "FÖR SVÅR" for a word
+  // that mostly hit the quota.
+  const sum = summarise(clues, results);
+  return {
+    entry, results, clues,
+    solved: sum.solved, shortest: sum.shortest, rate: sum.rate, verdict: sum.verdict,
+    unavailable: sum.unavailable, answered: sum.answered.length,
+    routes: routes(sum.solved, entry.forbidden),
+  };
 }
 
 const e = estimate(targets.length);
-console.log(`Modell: ${MODEL} · ${targets.length} ord × ${opts.clues} ledtrådar · ~${e.min}–${e.max} anrop\n`);
+const mode = opts.batchCheck
+  ? 'kalibrering: båda vägarna'
+  : opts.batch ? `batch om ${opts.batch} per anrop` : 'en ledtråd per anrop';
+console.log(`Modell: ${MODEL} · ${targets.length} ord × ${opts.clues} ledtrådar · ${mode}`);
+if (!opts.batchCheck) console.log(opts.batch ? '' : `~${e.min}–${e.max} anrop`);
+console.log();
+if (opts.batch && !opts.batchCheck) {
+  console.log('OBS: batch delar kontext mellan ledtrådar, så resultaten kan vara optimistiska.');
+  console.log('     Kör --batch-check en gång för att se hur mycket det rör sig om.\n');
+}
 
 const report = [];
 const startedAt = new Date().toISOString();
@@ -535,6 +668,30 @@ for (const entry of targets) {
   const prev = opts.save ? store.read(entry.word)?.runs?.slice(-1)[0] ?? null : null;
 
   const r = await probe(entry);
+
+  if (r.calibration) {
+    const { single, batched } = r.calibration;
+    const d = batched.solved.length - single.solved.length;
+    console.log(`${entry.word.toUpperCase()} — KALIBRERING, samma ${r.clues.length} ledtrådar båda vägarna\n`);
+    console.log(`  en i taget   ${String(single.solved.length).padStart(2)} lösta · kortaste ${single.shortest?.len ?? '-'} · ${single.verdict}`);
+    console.log(`  batch (${opts.batch || 6})    ${String(batched.solved.length).padStart(2)} lösta · kortaste ${batched.shortest?.len ?? '-'} · ${batched.verdict}`);
+    if (d === 0) {
+      console.log(`\n  Ingen skillnad på det här ordet. Batch ser ut att mäta samma sak — kör fler ord innan du litar på det.`);
+    } else if (d > 0) {
+      console.log(`\n  Batch löste ${d} fler. Ledtrådarna hjälper varandra i delad kontext, precis som befarat:`);
+      console.log(`  mätningen blir för optimistisk och gränserna för snäva. Använd inte --batch för att sätta limit.`);
+    } else {
+      console.log(`\n  Batch löste ${-d} färre — modellen tappar fokus när den bedömer flera samtidigt.`);
+      console.log(`  Också en snedvridning, åt andra hållet: ord ser svårare ut än de är.`);
+    }
+    const onlyBatch = batched.solved.filter((b) => !single.solved.some((x) => x.clue === b.clue));
+    if (onlyBatch.length) {
+      console.log(`\n  Löstes BARA i batch (misstänkta): ${onlyBatch.map((x) => `"${x.clue}"`).join(', ')}`);
+    }
+    console.log();
+    continue;
+  }
+
   const record = {
     at: startedAt,
     model: MODEL,
