@@ -41,7 +41,7 @@ behöver se:
 
 - *Innehåller målordet / ett spärrat ord* kräver facit — och är redan en
   deterministisk delsträngskontroll i `util.js`. Ingen modell behövs.
-- *Bara svenska, inga förkortningar, inga bokstaverings- eller rimtrick* är
+- *Bara svenska, inga bokstaverings- eller rimtrick, ingen ifyllnadsledtråd* är
   egenskaper hos **enbart ledtråden**.
 
 Därför kan den andra gruppen åka med i gissarens prompt utan att målordet
@@ -66,7 +66,7 @@ och kontrollera dem i kod, gratis och deterministiskt.
 
 Reglerna i prompten är medvetet generösa mot kreativitet: påhittade svenska
 sammansättningar och ovanliga bilder är tillåtna. Det är bara uppenbara genvägar
-(annat språk, förkortning, stavningstrick) som stoppas.
+(annat språk, stavningstrick, ifyllnadsledtråd) som stoppas.
 
 ### Kända exempel är tillåtna
 
