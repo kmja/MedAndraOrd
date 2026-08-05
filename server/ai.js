@@ -147,7 +147,10 @@ async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json =
       // A bad key fails identically on every attempt; waiting just makes the
       // player wait too.
       if (kind === 'auth' || kind === 'other' || attempt === RETRIES) throw err;
-      await sleep(retryDelayMs(err) ?? BACKOFF_MS[attempt]);
+      // The API sometimes answers a per-minute quota error with
+      // retryDelay: "0s", which is not an invitation to retry immediately —
+      // the window has not moved. Never wait less than our own backoff.
+      await sleep(Math.max(retryDelayMs(err) ?? 0, BACKOFF_MS[attempt]));
     }
   }
   throw lastErr;

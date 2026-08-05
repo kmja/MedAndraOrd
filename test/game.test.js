@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
-  dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING,
+  dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING, inflectionsOf,
   clueLimitFor, suggestedLimit,
   letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
@@ -129,6 +129,40 @@ test('judgeClue enforces the per-word limit it is given', async () => {
   assert.equal(v.type, 'rejected');
   assert.equal(v.source, 'code');
   assert.equal(called, false, 'a too-long clue must never reach the model');
+});
+
+test('checkClueCode rejects inflections the substring test cannot see', () => {
+  // The rules always said inflections were out, but the check was a substring
+  // test — and "stövlar" is not a substring of "stövel", because the e drops.
+  // "Puss i stövlar" solved the word on the live site because of this.
+  assert.equal(checkClueCode('Puss i stövlar', 'stövel', []).code, 'contains_inflection');
+  assert.equal(checkClueCode('stövlarna', 'stövel', []).code, 'contains_inflection');
+  assert.equal(checkClueCode('ridstövlar', 'stövel', []).code, 'contains_inflection');
+  // Other stem changes, same idea.
+  assert.equal(checkClueCode('nycklar', 'nyckel', []).code, 'contains_inflection');
+  assert.equal(checkClueCode('blommor', 'blomma', []).code, 'contains_inflection');
+  assert.equal(checkClueCode('vantar', 'vante', []).code, 'contains_inflection');
+  // When the stem does NOT change, the plain substring check catches it first
+  // and says so more directly — either message is a rejection, which is what
+  // matters.
+  assert.equal(checkClueCode('hundens', 'hund', []).code, 'contains_target');
+});
+
+test('checkClueCode still allows clues that merely describe the word', () => {
+  // The inflection rule must not become a blunt prefix ban — these are exactly
+  // the clues the game is for, and they came from a real probe run.
+  for (const clue of ['läder till knä', 'ryttarens val', 'långt skaft', 'vintermode för ben']) {
+    assert.equal(checkClueCode(clue, 'stövel', []), null, `${clue} should be allowed`);
+  }
+});
+
+test('inflectionsOf never contains the word itself', () => {
+  // The base form is caught by the substring check with its own message. If it
+  // appeared here too, the player would get "innehåller en böjning" for a clue
+  // that is simply the word.
+  for (const w of ['stövel', 'blomma', 'vante', 'hund']) {
+    assert.ok(!inflectionsOf(w).has(w), `${w} should not be its own inflection`);
+  }
 });
 
 test('checkClueCode rejects a fill-in-the-blank fragment', () => {

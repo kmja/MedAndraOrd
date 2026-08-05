@@ -527,8 +527,11 @@ export default function App() {
             <span className={tooLong ? 'counter over' : 'counter'}>
               <strong>{clueLen}</strong> / {state.maxClueLength} tecken
             </span>
+            {/* The player's own score, not the day's best — the board below
+                shows that. Labelling this one "Bäst idag" put two different
+                numbers under the same word and read as a bug. */}
             {!practice && state.best != null && (
-              <span className="best">Bäst idag: {state.best}</span>
+              <span className="best">Ditt bästa: {state.best}</span>
             )}
           </div>
           <LengthMeter

@@ -208,6 +208,30 @@ const MODEL = process.env.ORDKNAPP_MODEL || 'gemini-3.1-flash-lite';
 const quota = { hits: 0, waited: 0, absorbed: 0, stop: false };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// The free tier allows 15 requests per minute per model
+// (GenerateRequestsPerMinutePerProjectPerModel-FreeTier). A single word with
+// 12 clues is 13 calls, so an unpaced run walks straight into the wall and
+// then spends a minute waiting — and worse, the calls that fail are not
+// random, they are the ones at the end, which quietly biases whatever the run
+// was measuring.
+//
+// So pace instead of react: hold a rolling window of send times and wait until
+// there is room. Retrying is still there for the cases pacing can't predict —
+// a shared project, or another client on the same key.
+const RPM = Number(process.env.ORDKNAPP_RPM || 13); // a little under 15, for the retries pacing can't see
+const sent = [];
+
+async function paced() {
+  for (;;) {
+    const now = Date.now();
+    while (sent.length && now - sent[0] > 60_000) sent.shift();
+    if (sent.length < RPM) { sent.push(now); return; }
+    const wait = 60_000 - (now - sent[0]) + 250;
+    process.stderr.write(`  · håller kvoten: väntar ${Math.ceil(wait / 1000)}s\n`);
+    await sleep(wait);
+  }
+}
+
 // Long enough to outlast a per-minute window, few enough to notice a quota
 // that isn't coming back.
 const MAX_WAITS = 4;
@@ -220,6 +244,7 @@ const BACKOFF_MS = [5_000, 15_000, 30_000, 60_000];
 async function withQuotaRetry(label, fn) {
   for (let attempt = 0; ; attempt++) {
     try {
+      await paced();
       return { ok: true, value: await fn() };
     } catch (err) {
       const kind = classifyApiError(err);
@@ -577,6 +602,12 @@ async function judgeOneByOne(entry, clues) {
       // for raising it. The suggestion has to see the whole space.
       const verdict = await judgeClue({
         clue, target: entry.word, forbidden: entry.forbidden, maxLength: CLUE_LIMIT_CEILING,
+        // patientAi, not the default: this is what puts the call through the
+        // pacing and the quota waits. Without it this path ran unpaced with
+        // only the server's two short retries, so on a tight quota it lost
+        // calls that the batched path — which did go through here — kept. A
+        // calibration between the two then measured the wiring, not batching.
+        ai: patientAi,
       });
       results.push({ clue, why, len: clueLength(clue), type: verdict.type, guess: verdict.guess, reason: verdict.reason });
     } catch (err) {
@@ -673,8 +704,25 @@ for (const entry of targets) {
     const { single, batched } = r.calibration;
     const d = batched.solved.length - single.solved.length;
     console.log(`${entry.word.toUpperCase()} — KALIBRERING, samma ${r.clues.length} ledtrådar båda vägarna\n`);
-    console.log(`  en i taget   ${String(single.solved.length).padStart(2)} lösta · kortaste ${single.shortest?.len ?? '-'} · ${single.verdict}`);
-    console.log(`  batch (${opts.batch || 6})    ${String(batched.solved.length).padStart(2)} lösta · kortaste ${batched.shortest?.len ?? '-'} · ${batched.verdict}`);
+    const line = (name, m) =>
+      `  ${name.padEnd(12)} ${String(m.solved.length).padStart(2)} lösta av ${String(m.answered.length).padStart(2)} svarade` +
+      ` · kortaste ${m.shortest?.len ?? '-'} · ${m.verdict}` +
+      (m.unavailable ? `  ⚠ ${m.unavailable} utan svar` : '');
+    console.log(line('en i taget', single));
+    console.log(line(`batch (${opts.batch || 6})`, batched));
+
+    // The two modes make very different numbers of calls — one per clue versus
+    // one per batch — so on a tight quota the slower mode loses answers the
+    // faster one keeps. That difference alone can produce the whole gap, and a
+    // comparison between an interrupted run and a clean one measures the quota,
+    // not the batching.
+    if (Math.abs(single.unavailable - batched.unavailable) >= 2) {
+      console.log(`\n  ⚠ OJÄMFÖRBART: lägena tappade olika många svar (${single.unavailable} mot ${batched.unavailable}).`);
+      console.log(`  Skillnaden nedan kan lika gärna vara kvoten som batchningen. Kör om när kvoten är fri.`);
+      console.log();
+      continue;
+    }
+
     if (d === 0) {
       console.log(`\n  Ingen skillnad på det här ordet. Batch ser ut att mäta samma sak — kör fler ord innan du litar på det.`);
     } else if (d > 0) {

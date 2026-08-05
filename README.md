@@ -314,6 +314,13 @@ skillnader i siffrorna är då modellens spridning, inte en effekt av något du
 gjorde. Mappen är inte gitignorerad; checka in den om du vill ha kureringen i
 historiken.
 
+**Kvot.** Gratisnivån ger 15 anrop per minut och modell. Ett ord med 12
+ledtrådar är 13 anrop, så en oreglerad körning går rakt in i väggen. Skriptet
+håller därför takten själv (13/min som standard, `ORDKNAPP_RPM` ändrar det) i
+stället för att studsa mot gränsen — det spelar roll, för de anrop som faller
+bort när kvoten tar slut är inte slumpmässiga utan de sista, vilket snedvrider
+just det körningen skulle mäta.
+
 Kör alltid `--dry` först på ett större urval. Den skriver ut hur många anrop
 körningen blir — ett förslagsanrop per ord plus ett bedömningsanrop per ledtråd,
 med utrymme för omtag när AI:n svarar med fel längd.

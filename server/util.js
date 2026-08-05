@@ -153,6 +153,59 @@ const FRAGMENT_RE = /(\.{2,}|…|^-|-$|^\s*-|-\s*$)/;
  * Returns null if the clue passes, otherwise { code, reason } (reason in Swedish,
  * shown to the player). Rejections here cost no attempt, like referee rejections.
  */
+/**
+ * Plausible inflected forms of a Swedish word.
+ *
+ * The rules always said inflections were out, but the code only did a
+ * substring check, which silently missed every form where the stem changes:
+ * "stövlar" is not a substring of "stövel", so "Puss i stövlar" sailed through
+ * and solved the word. A substring test cannot express Swedish morphology.
+ *
+ * This generates rather than recognises, because the target is known and the
+ * clue is not. It covers the regular patterns — added endings, the dropped
+ * vowel in -el/-er/-en words (nyckel → nycklar), -a and -e stems (blomma →
+ * blommor, vante → vantar).
+ *
+ * It does NOT cover umlaut plurals (morot → morötter, hand → händer), which
+ * are irregular and would need a real morphology table. Those stay the word
+ * author's job: put the awkward form on the word's forbidden list.
+ */
+export function inflectionsOf(word) {
+  const w = normalize(word);
+  const out = new Set();
+  if (!w) return out;
+
+  const add = (...forms) => { for (const f of forms) if (f.length >= 3 && f !== w) out.add(f); };
+
+  // Endings that attach straight onto the whole word.
+  for (const s of ['en', 'n', 'et', 't', 'er', 'ar', 'or', 'r', 'na', 'arna', 'erna', 'orna',
+    'ens', 'ns', 'ets', 'ts', 'ers', 'ars', 'ors', 's', 'de', 'te', 'tt', 'ade', 'at', 'a']) {
+    add(w + s);
+  }
+
+  // -el/-en/-er drop the vowel before a vowel-initial ending: stövel → stövlar,
+  // nyckel → nycklar, fönster → fönstret.
+  const dropped = /^(.+)e([lnr])$/.exec(w);
+  if (dropped) {
+    const stem = dropped[1] + dropped[2];
+    add(...['ar', 'arna', 'ars', 'arnas', 'en', 'ens', 'et', 'ets', 'na'].map((s) => stem + s));
+  }
+
+  // -a stems: blomma → blommor, klocka → klockor.
+  if (w.endsWith('a')) {
+    const stem = w.slice(0, -1);
+    add(...['or', 'orna', 'ors', 'ornas', 'an', 'ans', 'ade', 'at', 'ar'].map((s) => stem + s));
+  }
+
+  // -e stems: vante → vantar, pojke → pojkar.
+  if (w.endsWith('e')) {
+    const stem = w.slice(0, -1);
+    add(...['ar', 'arna', 'ars', 'arnas', 'en', 'ens'].map((s) => stem + s));
+  }
+
+  return out;
+}
+
 export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH) {
   const raw = String(clue ?? '');
   const n = normalize(raw);
@@ -177,6 +230,15 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
   }
   if (n.includes(normalize(target))) {
     return { code: 'contains_target', reason: 'Ledtråden innehåller det hemliga ordet.' };
+  }
+  // Inflections, which the substring test above cannot see: "stövlar" is not a
+  // substring of "stövel". Short forms are matched as whole words only —
+  // a three-letter form as a substring would catch far too much.
+  const words = new Set(n.split(/[^\p{L}]+/u).filter(Boolean));
+  for (const form of inflectionsOf(target)) {
+    if (form.length >= 5 ? n.includes(form) : words.has(form)) {
+      return { code: 'contains_inflection', reason: 'Ledtråden innehåller en böjning av det hemliga ordet.' };
+    }
   }
   for (const f of forbidden) {
     if (n.includes(normalize(f))) {
