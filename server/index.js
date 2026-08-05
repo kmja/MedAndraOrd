@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { stateHandler, clueHandler, nameHandler, randomHandler } from './handlers.js';
+import { stateHandler, clueHandler, randomHandler } from './handlers.js';
 
 // Express wiring for local development and for hosts that run a long-lived
 // Node process (Railway, Render, Fly, a VPS). On Vercel the same handlers are
@@ -23,7 +23,6 @@ const wrap = (fn) => (req, res) =>
 app.get('/api/state', wrap(stateHandler));
 app.get('/api/random', wrap(randomHandler));
 app.post('/api/clue', wrap(clueHandler));
-app.post('/api/name', wrap(nameHandler));
 
 const distDir = path.join(__dirname, '..', 'web', 'dist');
 app.use(express.static(distDir));

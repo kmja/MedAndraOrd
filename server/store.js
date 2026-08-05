@@ -31,12 +31,11 @@ function groupAndRank(entries, { reveal, viewerPid }) {
     const key = clue ? normalize(clue) : `\u0000${pid}`;
     let g = groups.get(key);
     if (!g) {
-      g = { clue: clue ?? null, score, count: 0, names: [], you: false };
+      g = { clue: clue ?? null, score, count: 0, you: false };
       groups.set(key, g);
     }
     g.count += 1;
     if (pid === viewerPid) g.you = true;
-    g.names.push(pid);
   }
 
   const rows = [...groups.values()].sort((a, b) => {
@@ -57,10 +56,11 @@ function groupAndRank(entries, { reveal, viewerPid }) {
     if (!same) { rank = i + 1; prev = row; }
     return {
       rank,
-      score: row.score,
+      // Derived from the clue when we have one, so the number shown can never
+      // disagree with the clue shown or with the order they were sorted in.
+      score: row.clue ? clueLength(row.clue) : row.score,
       count: row.count,
       you: row.you,
-      pids: row.names,
       ...(reveal ? { clue: row.clue } : {}),
     };
   });
@@ -70,7 +70,6 @@ function groupAndRank(entries, { reveal, viewerPid }) {
 
 class MemoryStore {
   constructor() {
-    this.names = new Map();
     this.attempts = new Map(); // `${date}:${pid}` -> count
     this.bests = new Map(); // `${date}` -> Map(pid -> { score, clue })
     this.clues = new Map(); // `${date}:${clue}` -> verdict
@@ -107,14 +106,6 @@ class MemoryStore {
     return day.get(pid).score;
   }
 
-  async getName(pid) {
-    return this.names.get(pid) ?? null;
-  }
-
-  async setName(pid, name) {
-    this.names.set(pid, name);
-  }
-
   /**
    * `reveal` gates the winning clues. They are the answer key: anyone who
    * hasn't finished could simply copy the best one, so the server omits them
@@ -123,14 +114,10 @@ class MemoryStore {
   async leaderboard(date, viewerPid, reveal = false) {
     const day = this.bests.get(date);
     if (!day) return [];
-    const rows = groupAndRank(
+    return groupAndRank(
       [...day.entries()].map(([pid, best]) => ({ pid, score: best.score, clue: best.clue })),
       { reveal, viewerPid },
     );
-    return rows.map(({ pids, ...row }) => ({
-      ...row,
-      name: pids.length === 1 ? this.names.get(pids[0]) || 'Anonym' : null,
-    }));
   }
 
   /**
@@ -179,7 +166,6 @@ class FileStore extends MemoryStore {
   _load() {
     try {
       const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      this.names = new Map(raw.names ?? []);
       this.attempts = new Map(raw.attempts ?? []);
       this.clues = new Map(raw.clues ?? []);
       this.bests = new Map((raw.bests ?? []).map(([d, entries]) => [d, new Map(entries)]));
@@ -198,7 +184,6 @@ class FileStore extends MemoryStore {
         fs.writeFileSync(
           tmp,
           JSON.stringify({
-            names: [...this.names],
             attempts: [...this.attempts],
             clues: [...this.clues],
             bests: [...this.bests].map(([d, m]) => [d, [...m]]),
@@ -214,7 +199,6 @@ class FileStore extends MemoryStore {
   async cacheVerdict(...args) { await super.cacheVerdict(...args); this._save(); }
   async incrAttempts(...args) { const n = await super.incrAttempts(...args); this._save(); return n; }
   async recordBest(...args) { const b = await super.recordBest(...args); this._save(); return b; }
-  async setName(...args) { await super.setName(...args); this._save(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -292,14 +276,6 @@ class KvStore {
     return now;
   }
 
-  async getName(pid) {
-    return (await this._cmd('GET', `name:${pid}`)) ?? null;
-  }
-
-  async setName(pid, name) {
-    await this._cmd('SET', `name:${pid}`, name);
-  }
-
   /** See MemoryStore.leaderboard for why `reveal` exists. */
   /**
    * Reads the whole day, because grouping and the tiebreak chain need every
@@ -315,16 +291,7 @@ class KvStore {
     const clues = await this._cmd('HMGET', `bestclue:${date}`, ...entries.map((e) => e.pid));
     entries.forEach((e, i) => { e.clue = clues?.[i] ?? null; });
 
-    const rows = groupAndRank(entries, { reveal, viewerPid });
-    const solo = rows.filter((r) => r.pids.length === 1);
-    const names = solo.length
-      ? await this._cmd('MGET', ...solo.map((r) => `name:${r.pids[0]}`))
-      : [];
-    const nameByPid = new Map(solo.map((r, i) => [r.pids[0], names[i] || 'Anonym']));
-    return rows.map(({ pids, ...row }) => ({
-      ...row,
-      name: pids.length === 1 ? nameByPid.get(pids[0]) : null,
-    }));
+    return groupAndRank(entries, { reveal, viewerPid });
   }
 
   /** Averages over every solver, so this reads the whole day's set. */

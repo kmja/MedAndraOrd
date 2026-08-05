@@ -106,19 +106,6 @@ test('api/clue accepts a stringified body (Vercel does not always parse)', async
   assert.equal(res.statusCode, 400, 'a string body must parse, not crash');
 });
 
-test('api/name moderates before storing', async () => {
-  const { default: handler } = await import('../api/name.js');
-
-  const bad = mockRes();
-  await handler(mockReq({ method: 'POST', body: { name: 'jävlaKalle' } }), bad);
-  assert.equal(bad.statusCode, 400);
-
-  const ok = mockRes();
-  await handler(mockReq({ method: 'POST', body: { name: '  Anna <b>  ' } }), ok);
-  assert.equal(ok.statusCode, 200);
-  assert.equal(ok.body.name, 'Anna b');
-});
-
 test('a rejected clue never consumes an attempt, however many times it is sent', async () => {
   // Exercises the costsAttempt wiring through the real handler and store.
   const [{ default: clueHandler }, { default: stateHandler }] = await Promise.all([

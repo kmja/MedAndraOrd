@@ -26,19 +26,25 @@ test('best score keeps the lowest — golf, lower is better', async () => {
   assert.equal(await s.getBest('d', 'a'), 8, 'a worse later score must not overwrite the best');
 });
 
-test('leaderboard sorts ascending and resolves names', async () => {
+test('leaderboard sorts ascending and marks the viewer', async () => {
   const s = new MemoryStore();
-  await s.setName('a', 'Anna');
-  await s.setName('b', 'Bo');
-  await s.recordBest('d', 'a', 9);
-  await s.recordBest('d', 'b', 4);
-  await s.recordBest('d', 'c', 7); // no name set
-  const lb = await s.leaderboard('d', 'b');
-  assert.deepEqual(lb.map((r) => [r.rank, r.name, r.score, r.you, r.count]), [
-    [1, 'Bo', 4, true, 1],
-    [2, 'Anonym', 7, false, 1],
-    [3, 'Anna', 9, false, 1],
+  await s.recordBest('d', 'a', 9, 'niotecken');
+  await s.recordBest('d', 'b', 4, 'fyra');
+  await s.recordBest('d', 'c', 7, 'sjuteck');
+  const lb = await s.leaderboard('d', 'b', true);
+  assert.deepEqual(lb.map((r) => [r.rank, r.clue, r.score, r.you, r.count]), [
+    [1, 'fyra', 4, true, 1],
+    [2, 'sjuteck', 7, false, 1],
+    [3, 'niotecken', 9, false, 1],
   ]);
+});
+
+test('rows carry no player identity at all', async () => {
+  // No accounts, no names: a row is a clue, a count and a score.
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4, 'fyra');
+  const [row] = await s.leaderboard('d', 'a', true);
+  assert.deepEqual(Object.keys(row).sort(), ['clue', 'count', 'rank', 'score', 'you']);
 });
 
 test('clue verdict cache is per day', async () => {
@@ -69,8 +75,8 @@ function stubKv(responder) {
 }
 
 test('KvStore authenticates and strips the trailing slash from the URL', async () => {
-  const { store, calls } = stubKv(() => null);
-  await store.getName('pid');
+  const { store, calls } = stubKv(() => 0);
+  await store.getAttempts('d', 'pid');
   assert.equal(calls[0].url, 'https://kv.example.com');
   assert.equal(calls[0].auth, 'Bearer tok');
 });
@@ -94,7 +100,6 @@ test('KvStore parses the flat ZRANGE WITHSCORES reply into ranked rows', async (
   const { store } = stubKv((c) => {
     if (c[0] === 'ZRANGE') return ['pidB', '4', 'pidA', '9'];
     if (c[0] === 'HMGET') return ['kort', 'längre ord'];
-    if (c[0] === 'MGET') return ['Bo', 'Anna'];
     return null;
   });
   const board = await store.leaderboard('d', 'pidA', true);
@@ -150,16 +155,13 @@ test('standing is null for a player who has not solved it', async () => {
 test('leaderboard ranks agree with standing, and mark the viewer', async () => {
   // These two disagreeing is how a player ends up labelled as someone else.
   const s = new MemoryStore();
-  await s.setName('a', 'Astrid');
-  await s.setName('b', 'Bo');
-  await s.setName('c', 'Cilla');
-  await s.recordBest('d', 'a', 4);
-  await s.recordBest('d', 'b', 6);
-  await s.recordBest('d', 'c', 6);
+  await s.recordBest('d', 'a', 4, 'fyra');
+  await s.recordBest('d', 'b', 6, 'sextecken');
+  await s.recordBest('d', 'c', 6, 'sexctecke');
 
-  const board = await s.leaderboard('d', 'c');
+  const board = await s.leaderboard('d', 'c', true);
   const mine = board.find((r) => r.you);
-  assert.equal(mine.name, 'Cilla', 'the viewer flag must land on the viewer');
+  assert.equal(mine.clue, 'sexctecke', 'the viewer flag must land on the viewer');
   assert.equal(board.filter((r) => r.you).length, 1);
 
   const standing = await s.standing('d', 'c');
@@ -213,14 +215,14 @@ test('leaderboard withholds clues unless the viewer is allowed to see them', asy
 
 test('the stored clue follows the score it earned', async () => {
   const s = new MemoryStore();
-  await s.recordBest('d', 'a', 8, 'lång ledtråd');
-  await s.recordBest('d', 'a', 5, 'kort');
+  await s.recordBest('d', 'a', 11, 'lång ledtråd');
+  await s.recordBest('d', 'a', 4, 'kort');
   assert.equal((await s.leaderboard('d', 'a', true))[0].clue, 'kort');
 
   // A worse later attempt must not overwrite the record or its clue.
-  await s.recordBest('d', 'a', 9, 'sämre');
+  await s.recordBest('d', 'a', 5, 'sämre');
   const row = (await s.leaderboard('d', 'a', true))[0];
-  assert.equal(row.score, 5);
+  assert.equal(row.score, 4);
   assert.equal(row.clue, 'kort');
 });
 
@@ -280,9 +282,7 @@ test('identical clues collapse into one row with a count', async () => {
   assert.equal(board.length, 2, 'the three identical clues are one row');
   assert.equal(board[0].count, 3);
   assert.equal(board[0].you, true, 'the viewer is in that group');
-  assert.equal(board[0].name, null, 'a shared row has no single author');
   assert.equal(board[1].count, 1);
-  assert.equal(board[1].name, 'Anonym');
 });
 
 test('grouping ignores case and spacing differences', async () => {
@@ -312,4 +312,13 @@ test('grouped rows still withhold clues before the reveal', async () => {
   const locked = await s.leaderboard('d', 'x');
   assert.equal(locked[0].count, 2, 'the count is safe to show');
   assert.ok(!('clue' in locked[0]), 'the clue itself is not');
+});
+
+test('a row\'s score always matches the clue it shows', async () => {
+  // The order comes from the clue, so the number must too — otherwise a board
+  // can appear misordered even though the sort was correct.
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 999, 'kaninmat'); // deliberately inconsistent
+  const [row] = await s.leaderboard('d', 'a', true);
+  assert.equal(row.score, 8, 'score is derived from the clue');
 });

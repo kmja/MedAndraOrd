@@ -125,11 +125,14 @@ målet, inte mot taket.
 - **Servern räknar all poäng själv** — klienten rapporterar bara ledtrådstexten.
 - **5 försök per dag** per spelare (anonym httpOnly-cookie).
 - Rate limiting per spelare på ledtråds-endpointen.
-- Namn på topplistan modereras i kod (sanering + blocklista).
-- **Topplistan listar ledtrådar, inte spelare.** Alla som skrivit samma ledtråd
-  (normaliserat, så versaler och mellanslag inte splittrar raden) delar en rad
-  med antal: *”39 spelare skrev samma sak”*. Namnet visas bara när raden har en
-  enda upphovsperson.
+- **Inga konton, inga namn.** Topplistan listar *ledtrådar*, inte spelare. Alla
+  som skrivit samma ledtråd (normaliserat, så versaler och mellanslag inte
+  splittrar raden) delar en rad med antal: *”3 spelare”*. Den enda identiteten
+  som finns är en anonym httpOnly-cookie, och den används bara för att räkna
+  försök, hålla ditt bästa resultat och märka din egen rad.
+- **Radens poäng härleds ur ledtråden** (`clueLength`), inte ur ett separat
+  lagrat tal — ordningen kommer från ledtråden, så siffran måste göra det med,
+  annars kan listan se felsorterad ut fast sorteringen var rätt.
 - **Ordningen** (`compareClues()` i `util.js`): färre tecken → färre mellanslag
   → ovanligare bokstäver → alfabetiskt för stabil sortering. `standing()` rankar
   på exakt samma kedja, annars skulle en spelares angivna placering motsäga
@@ -268,7 +271,6 @@ Enklare: `npm install && npm run build && npm start`. Då kör Express med
 | `GET /api/random` | Ett slumpat övningsord (aldrig dagens). |
 | `POST /api/clue {clue}` | Kör hela pipelinen. Svar: `rejected` (kostar inget) / `correct` / `wrong` / `ai_failure` (räknas som miss). |
 | `POST /api/clue {clue, practice, wordIndex}` | Övningsläge: samma bedömning, men inget registreras. Vägrar dagens ord. |
-| `POST /api/name {name}` | Sätter modererat topplistenamn. |
 
 ## Modellval
 

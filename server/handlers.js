@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { getStore } from './store.js';
 import { wordForDate, wordByIndex, randomWord, WORDS } from './words.js';
 import { judgeClue, costsAttempt, isCacheableVerdict, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
-import { normalize, sanitizeName, todayInStockholm, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH } from './util.js';
+import { normalize, todayInStockholm, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH } from './util.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
 // both Express and Vercel functions provide. Keeping them here means there is
@@ -83,10 +83,9 @@ export async function stateHandler(req, res) {
   const date = todayInStockholm();
   const { word, forbidden, letterCount } = wordForDate(date);
 
-  const [attempts, best, name, standing, dayStats] = await Promise.all([
+  const [attempts, best, standing, dayStats] = await Promise.all([
     store.getAttempts(date, pid),
     store.getBest(date, pid),
-    store.getName(pid),
     store.standing(date, pid),
     store.dayStats(date),
   ]);
@@ -105,7 +104,6 @@ export async function stateHandler(req, res) {
     maxAttempts: MAX_ATTEMPTS,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
     best,
-    name,
     leaderboard,
     standing,
     dayAverage: dayStats.average,
@@ -226,13 +224,4 @@ export async function clueHandler(req, res) {
     dayAverage: dayStats.average,
     solvers: dayStats.solvers,
   });
-}
-
-export async function nameHandler(req, res) {
-  const store = getStore();
-  const pid = getPlayerId(req, res);
-  const name = sanitizeName(parseBody(req).name);
-  if (!name) return send(res, 400, { error: 'Ogiltigt namn.' });
-  await store.setName(pid, name);
-  send(res, 200, { name, leaderboard: await store.leaderboard(todayInStockholm(), pid) });
 }

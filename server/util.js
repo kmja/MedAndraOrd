@@ -134,28 +134,6 @@ export function extractWord(text) {
   return m ? normalize(m[0]) : null;
 }
 
-const NAME_BLOCKLIST = [
-  'hitler', 'nazi', 'fitta', 'kuk', 'hora', 'neger', 'fuck', 'shit', 'cunt',
-  'bög', 'jävla', 'satan', 'knulla', 'bitch', 'idiot',
-];
-
-/**
- * Leaderboard name moderation: sanitize in code, blocklist crude words.
- * Returns a safe display name, or null if nothing usable remains.
- */
-export function sanitizeName(name) {
-  let s = String(name ?? '')
-    .normalize('NFKC')
-    .replace(/[^\p{L}\p{N} _\-.]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 20);
-  if (!s) return null;
-  const lower = s.toLowerCase();
-  if (NAME_BLOCKLIST.some((w) => lower.includes(w))) return null;
-  return s;
-}
-
 /** Local date string (YYYY-MM-DD) in Swedish time — the game day boundary. */
 export function todayInStockholm(now = new Date()) {
   return new Intl.DateTimeFormat('sv-SE', {

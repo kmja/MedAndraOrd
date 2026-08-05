@@ -144,7 +144,7 @@ function Leaderboard({ rows, standing, compact }) {
         <ol className="leaderboard">
           {shown.map((row, i) => (
             <li
-              key={`${row.rank}-${row.name}-${i}`}
+              key={`${row.rank}-${i}`}
               className={`${row.you ? 'is-you' : ''}${appended && i === shown.length - 1 ? ' after-gap' : ''}`}
             >
               <span className="lb-rank">{row.rank}</span>
@@ -155,11 +155,13 @@ function Leaderboard({ rows, standing, compact }) {
                 ) : (
                   <span className="lb-clue lb-hidden">••••••</span>
                 )}
-                <span className="lb-by">
-                  {row.count > 1
-                    ? `${row.count} spelare skrev samma sak`
-                    : row.name || 'Anonym'}
-                </span>
+                {(row.count > 1 || row.you) && (
+                  <span className="lb-by">
+                    {[row.you && 'din ledtråd', row.count > 1 && `${row.count} spelare`]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                )}
               </span>
               <span className="lb-score">{row.score}</span>
             </li>
@@ -180,16 +182,12 @@ export default function App() {
   const [pendingClue, setPendingClue] = useState(null);
   const [history, setHistory] = useState([]); // newest first
   const [notice, setNotice] = useState(null);
-  const [nameInput, setNameInput] = useState('');
   const [practice, setPractice] = useState(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     api('/api/state')
-      .then((s) => {
-        setState(s);
-        setNameInput(s.name || '');
-      })
+      .then(setState)
       .catch((e) => setLoadError(e.message));
   }, []);
 
@@ -264,18 +262,6 @@ export default function App() {
     setHistory([]);
     setClue('');
     setNotice(null);
-  }
-
-  async function saveName(e) {
-    e.preventDefault();
-    const name = nameInput.trim();
-    if (!name) return;
-    try {
-      const res = await api('/api/name', { method: 'POST', body: JSON.stringify({ name }) });
-      setState((s) => ({ ...s, name: res.name, leaderboard: res.leaderboard }));
-    } catch (err) {
-      setNotice({ kind: 'error', text: err.message });
-    }
   }
 
   const attemptsLabel = practice
@@ -396,31 +382,6 @@ export default function App() {
             <p className="warn">Ingen databas är kopplad — resultaten försvinner när servern startar om.</p>
           )}
           <Leaderboard rows={state.leaderboard} standing={state.standing} />
-          <form onSubmit={saveName} className="name-form">
-            <input
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              placeholder="Ditt namn på topplistan"
-              maxLength={20}
-              aria-label="Ditt namn på topplistan"
-            />
-            <button type="submit" className="ghost" disabled={!nameInput.trim()}>Spara</button>
-          </form>
-        </section>
-      )}
-
-      {!practice && solved && (
-        <section className="card">
-          <form onSubmit={saveName} className="name-form">
-            <input
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              placeholder="Ditt namn på topplistan"
-              maxLength={20}
-              aria-label="Ditt namn på topplistan"
-            />
-            <button type="submit" className="ghost" disabled={!nameInput.trim()}>Spara namn</button>
-          </form>
         </section>
       )}
 

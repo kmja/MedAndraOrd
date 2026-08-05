@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
-  sanitizeName, dayNumber, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH,
+  dayNumber, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH,
   letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
@@ -83,13 +83,6 @@ test('extractWord pulls a single word from noisy output', () => {
   assert.equal(extractWord('  Morot.  '), 'morot');
   assert.equal(extractWord('Ordet är: HJÄRTA'), 'ordet'); // first token — guesser is told to answer with only the word
   assert.equal(extractWord('!!!'), null);
-});
-
-test('sanitizeName strips junk and blocks crude names', () => {
-  assert.equal(sanitizeName('  Kalle 99  '), 'Kalle 99');
-  assert.equal(sanitizeName('<script>x</script>'), 'scriptxscript');
-  assert.equal(sanitizeName('jävlaKalle'), null);
-  assert.equal(sanitizeName('💩💩'), null);
 });
 
 // ---------------------------------------------------------------------------
