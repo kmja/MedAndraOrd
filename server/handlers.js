@@ -2,7 +2,11 @@ import crypto from 'node:crypto';
 
 import { getStore } from './store.js';
 import { wordForDate, wordByIndex, randomWord, WORDS } from './words.js';
-import { judgeClue, costsAttempt, isCacheableVerdict, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
+import {
+  judgeClue, costsAttempt, isCacheableVerdict, verdictTtlSeconds,
+  AiUnavailableError, MAX_ATTEMPTS,
+} from './game.js';
+import { RULEBOOK_ID } from './ai.js';
 import { normalize, todayInStockholm, clueLimitFor } from './util.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
@@ -25,6 +29,13 @@ const COOKIE = 'ordknapp_pid';
  * the new word simply starts with a clean board.
  */
 const puzzleKey = (date, index) => `${date}:${index}`;
+
+// A cached ruling is only true of the rules that produced it, so the rulebook
+// is part of its identity. Editing a rule changes RULEBOOK_ID, which orphans
+// every ruling made under the old wording instead of letting it outlive the
+// fix — the alternative was a clue staying wrongly refused for the rest of the
+// puzzle no matter what the prompt said afterwards.
+const clueKey = (normClue) => `${RULEBOOK_ID}:${normClue}`;
 
 // Practice mode ("Slumpa ord") is a testing aid: a random word run through the
 // same pipeline but recorded nowhere. Set ORDKNAPP_PRACTICE=0 to remove it.
@@ -205,7 +216,7 @@ export async function clueHandler(req, res) {
 
   // With a leaderboard, identical clues must resolve identically: the first
   // submission fixes the ruling for everyone that day.
-  let verdict = await store.getCachedVerdict(puzzle, normClue);
+  let verdict = await store.getCachedVerdict(puzzle, clueKey(normClue));
   let cached = true;
   if (!verdict) {
     cached = false;
@@ -221,7 +232,7 @@ export async function clueHandler(req, res) {
       return send(res, 500, { error: 'Något gick fel. Inget försök förbrukades.' });
     }
     if (isCacheableVerdict(verdict)) {
-      await store.cacheVerdict(puzzle, normClue, verdict);
+      await store.cacheVerdict(puzzle, clueKey(normClue), verdict, verdictTtlSeconds(verdict));
     }
   }
 

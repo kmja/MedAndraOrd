@@ -58,6 +58,41 @@ test('clue verdict cache is per puzzle, not per day', async () => {
   assert.equal(await s.getCachedVerdict('2026-08-05:370', 'kanin'), null, 'same day, different word');
 });
 
+test('a cached verdict can be given a lifetime, and expires when it is up', async () => {
+  const s = new MemoryStore();
+  await s.cacheVerdict('p', 'blött plask', { type: 'rejected' }, 600);
+  assert.deepEqual(await s.getCachedVerdict('p', 'blött plask'), { type: 'rejected' });
+
+  // Expiry is read at lookup time, so moving the clock forward is enough.
+  const realNow = Date.now;
+  Date.now = () => realNow() + 601_000;
+  try {
+    assert.equal(await s.getCachedVerdict('p', 'blött plask'), null, 'should have expired');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('a verdict cached with no lifetime keeps the old never-expires behaviour', async () => {
+  const s = new MemoryStore();
+  await s.cacheVerdict('p', 'kanin', { type: 'correct', score: 5 });
+  const realNow = Date.now;
+  Date.now = () => realNow() + 40 * 24 * 3600 * 1000;
+  try {
+    assert.deepEqual(await s.getCachedVerdict('p', 'kanin'), { type: 'correct', score: 5 });
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('a bare verdict left by an older build still reads back', async () => {
+  // FileStore reloads what earlier versions wrote, and those entries are the
+  // verdict itself rather than a { verdict, expiresAt } wrapper.
+  const s = new MemoryStore();
+  s.clues.set('p:kanin', { type: 'wrong', guess: 'hare' });
+  assert.deepEqual(await s.getCachedVerdict('p', 'kanin'), { type: 'wrong', guess: 'hare' });
+});
+
 test('scores are per puzzle, so a bank change starts a clean board', async () => {
   const s = new MemoryStore();
   await s.recordBest('2026-08-05:158', 'a', 6, 'vinterplagg');
@@ -99,6 +134,23 @@ test('KvStore uses INCR for attempts, so concurrent writes cannot clobber', asyn
   assert.equal(await store.incrAttempts('2026-08-05', 'pid'), 3);
   assert.equal(calls[0].command[0], 'INCR');
   assert.equal(calls[0].command[1], 'att:2026-08-05:pid');
+});
+
+test('KvStore expires a refusal on its own short clock, not the 40-day one', async () => {
+  // SET clears any existing TTL, so the EXPIRE that follows is what decides
+  // how long this ruling lives — including when an old long-lived entry is
+  // overwritten.
+  const { store, calls } = stubKv(() => 'OK');
+  await store.cacheVerdict('p', 'blött plask', { type: 'rejected' }, 600);
+  assert.deepEqual(calls.map((c) => c.command[0]), ['SET', 'EXPIRE']);
+  assert.equal(calls[1].command[1], 'clue:p:blött plask');
+  assert.equal(Number(calls[1].command[2]), 600);
+});
+
+test('KvStore keeps the 40-day life for rulings with no lifetime of their own', async () => {
+  const { store, calls } = stubKv(() => 'OK');
+  await store.cacheVerdict('p', 'kanin', { type: 'correct' });
+  assert.equal(Number(calls[1].command[2]), 60 * 60 * 24 * 40);
 });
 
 test('KvStore records bests with ZADD LT so only improvements land', async () => {

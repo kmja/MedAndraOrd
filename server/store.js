@@ -81,11 +81,24 @@ class MemoryStore {
   }
 
   async getCachedVerdict(puzzle, normClue) {
-    return this.clues.get(`${puzzle}:${normClue}`) ?? null;
+    const key = `${puzzle}:${normClue}`;
+    const hit = this.clues.get(key);
+    if (!hit) return null;
+    // Entries written before rulings carried an expiry are bare verdicts. A
+    // bare verdict never expires, which is exactly what it used to do.
+    const { verdict, expiresAt } = hit.verdict ? hit : { verdict: hit, expiresAt: null };
+    if (expiresAt != null && Date.now() > expiresAt) {
+      this.clues.delete(key);
+      return null;
+    }
+    return verdict;
   }
 
-  async cacheVerdict(puzzle, normClue, verdict) {
-    this.clues.set(`${puzzle}:${normClue}`, verdict);
+  async cacheVerdict(puzzle, normClue, verdict, ttlSeconds = null) {
+    this.clues.set(`${puzzle}:${normClue}`, {
+      verdict,
+      expiresAt: ttlSeconds == null ? null : Date.now() + ttlSeconds * 1000,
+    });
   }
 
   async getAttempts(puzzle, pid) {
@@ -241,10 +254,14 @@ class KvStore {
     return raw ? JSON.parse(raw) : null;
   }
 
-  async cacheVerdict(puzzle, normClue, verdict) {
+  async cacheVerdict(puzzle, normClue, verdict, ttlSeconds = null) {
     const key = `clue:${puzzle}:${normClue}`;
+    // SET drops any existing TTL, so the EXPIRE that follows is what sets it —
+    // and a re-cached refusal gets a fresh short life rather than inheriting
+    // the old long one.
     await this._cmd('SET', key, JSON.stringify(verdict));
-    await this._expire(key);
+    if (ttlSeconds == null) await this._expire(key);
+    else await this._cmd('EXPIRE', key, ttlSeconds);
   }
 
   async getAttempts(puzzle, pid) {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 
 // The single AI role. Everything Swedish lives in this prompt, the word bank
@@ -247,7 +248,7 @@ const CLUE_RULES = `STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. kex, jobb, tv) är tillåtna.
 2. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller uttal i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
 3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "gräv" för att leda till grävskopa). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
-4. Är en uppräkning i stället för en formulering: flera fristående utpekanden på rad, som var för sig associerar till svaret men inte bygger EN språklig enhet ("rep gnista damm", "trögt snöre yta"). Testet är grammatiskt, inte semantiskt: bildar orden en fras med ett huvudord och dess bestämningar, eller en sats? Då är den tillåten. Är det tre saker uppradade efter varandra är den det inte.
+4. Är en uppräkning i stället för en formulering: flera fristående utpekanden på rad, som var för sig associerar till svaret men inte bygger EN språklig enhet ("rep gnista damm", "murken planka flis"). Testet är grammatiskt, inte semantiskt: bildar orden en fras med ett huvudord och dess bestämningar, eller en sats? Då är den tillåten. Är det tre saker uppradade efter varandra är den det inte.
 
 JÄMFÖR NOGA — skillnaden är strukturen, aldrig antalet ord:
   "blött plask"        TILLÅTEN. Adjektiv + substantiv som kongruerar: ett plask som är blött. En fras.
@@ -277,6 +278,25 @@ function classLine(wordClass) {
 }
 
 const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.`;
+
+/**
+ * A fingerprint of the rulebook, used to scope the verdict cache.
+ *
+ * A ruling is only true of the rules that produced it. Cached rulings live as
+ * long as the puzzle does, so before this existed, fixing a rule could not
+ * reach any clue already judged under the old one: "blött plask" was refused,
+ * the refusal was cached for the puzzle's lifetime, and the fix that made it
+ * legal was invisible to the one clue it was written for.
+ *
+ * Derived rather than declared on purpose. A hand-maintained version number is
+ * a step someone has to remember during the edit where they are least likely
+ * to — mid-fix, focused on the wording. Hashing the text means editing a rule
+ * IS bumping the version, and stale rulings cannot outlive the rules.
+ */
+export const RULEBOOK_ID = createHash('sha1')
+  .update([CLUE_CULTURE, CLUE_RULES, GUESS_FORM].join(' '))
+  .digest('hex')
+  .slice(0, 8);
 
 /**
  * The guesser's system prompt. Exported so it can be asserted against.

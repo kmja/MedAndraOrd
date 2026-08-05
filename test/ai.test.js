@@ -204,11 +204,27 @@ test('the guesser prompt requires a clue to read as Swedish', () => {
     const allowed = [...prompt.matchAll(/"([^"]+)"\s+TILLÅTEN/g)].map((m) => m[1]);
     const refused = [...prompt.matchAll(/"([^"]+)"\s+OTILLÅTEN/g)].map((m) => m[1]);
     assert.ok(allowed.length >= 3 && refused.length >= 1, 'rule 4 needs a worked contrast');
+    // Rule 4's own prose carries refused examples too, and they are not tagged
+    // OTILLÅTEN — so checking only the tagged ones missed that the banned
+    // "trögt snöre yta" opened with the same word as the allowed "trögt
+    // skodon". Everything quoted inside rule 4 is an illustration of breaking
+    // it, so pick those up as well.
+    const ruleFour = prompt.slice(prompt.indexOf('4. Är en uppräkning'), prompt.indexOf('JÄMFÖR NOGA'));
+    refused.push(...[...ruleFour.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+    // Whole-string containment was too weak a test: "trögt skodon" is not a
+    // prefix of "trögt snöre yta", yet they open with the same word, which is
+    // all the model needs to read one as the other. Examples on opposite sides
+    // of the rule must not share a first word.
+    const firstWord = (s) => s.trim().split(/\s+/)[0].toLowerCase();
     for (const bad of refused) {
       for (const good of allowed) {
         assert.ok(
           !bad.startsWith(good) && !good.startsWith(bad),
           `"${good}" is a prefix of the refused example "${bad}" — the model will confuse them`,
+        );
+        assert.notStrictEqual(
+          firstWord(bad), firstWord(good),
+          `refused "${bad}" and allowed "${good}" open with the same word — the model will confuse them`,
         );
       }
     }
@@ -293,4 +309,19 @@ test('retryDelayMs honours the wait the API asked for', () => {
   assert.equal(retryDelayMs(undefined), null);
   // Never wait absurdly long on a malformed or hostile value.
   assert.equal(retryDelayMs({ message: '"retryDelay":"99999s"' }), 60_000);
+});
+
+test('the rulebook fingerprint changes when the rulebook does', async () => {
+  // The verdict cache is keyed by this. If it did not move with the rules, a
+  // ruling made under the old wording would outlive the fix that changed it —
+  // which is exactly how "blött plask" stayed refused after being made legal.
+  const { RULEBOOK_ID } = await import('../server/ai.js');
+  assert.match(RULEBOOK_ID, /^[0-9a-f]{8}$/);
+
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../server/ai.js', import.meta.url), 'utf8');
+  // Derived from the rule text, not typed in by hand — a literal would drift
+  // the moment someone edited a rule without remembering to bump it.
+  assert.match(source, /RULEBOOK_ID = createHash/);
+  assert.match(source, /\.update\(\[CLUE_CULTURE, CLUE_RULES, GUESS_FORM\]/);
 });

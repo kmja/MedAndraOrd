@@ -169,3 +169,22 @@ export function costsAttempt(verdict) {
 export function isCacheableVerdict(verdict) {
   return verdict?.type !== 'ai_failure';
 }
+
+// How long a refusal stays cached. Long enough to absorb a double-click or an
+// annoyed re-submit, which is all the cache was ever protecting against here.
+export const REJECTION_TTL_SECONDS = 10 * 60;
+
+/**
+ * How long this ruling should be cached for, in seconds. Null means "as long
+ * as the puzzle lives", which is the default for everything else.
+ *
+ * A correct or wrong ruling has to be frozen: it scores a clue, and two
+ * players writing the same clue must land in the same place on the board.
+ * A refusal scores nothing and costs no attempt, so there is no fairness
+ * stake in freezing it — and freezing it is actively harmful, because the
+ * refusal might be wrong. One bad ruling on a legal clue used to ban that
+ * clue for every player for the rest of the puzzle, with no way back.
+ */
+export function verdictTtlSeconds(verdict) {
+  return verdict?.type === 'rejected' ? REJECTION_TTL_SECONDS : null;
+}
