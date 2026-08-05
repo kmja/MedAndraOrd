@@ -67,6 +67,23 @@ test('a clue above par is legal — it just scores worse', async () => {
   assert.equal(v.score, PAR_CLUE_LENGTH + 5);
 });
 
+test('checkClueCode rejects a fill-in-the-blank fragment', () => {
+  // "skit…" doesn't describe a boot; it asks the model to complete
+  // "skitstövel". Only the explicit signal is caught in code — see the prompt
+  // for the judgment half.
+  for (const clue of ['skit...', 'skit…', 'skit-', '-stövelaktig', 'arbets..']) {
+    assert.equal(checkClueCode(clue, 'stövel', []).code, 'fragment', `${clue} should be a fragment`);
+  }
+});
+
+test('the fragment rule does not catch ordinary clues', () => {
+  // Swedish compounds that *describe* must stay legal — that is most of the
+  // good clues in the game.
+  for (const clue of ['vadplagg', 'kanin mat', 'går i lera', '1-2 saker']) {
+    assert.equal(checkClueCode(clue, 'stövel', []), null, `${clue} should pass`);
+  }
+});
+
 test('checkClueCode rejects emoji before any API call', () => {
   assert.equal(checkClueCode('kanin 🥕', 'morot', []).code, 'emoji');
 });

@@ -42,6 +42,15 @@ const abbrev = await guardedGuesser({ clue: 'bl.a. rotsak', letterCount: 5 });
 ok('ett anrop: stoppar förkortning', abbrev?.legal === false,
    abbrev === null ? 'INGET SVAR (fail open)' : JSON.stringify(abbrev));
 
+// The judgment half of the compound rule: no ellipsis to give it away.
+const fragment = await guardedGuesser({ clue: 'skit', letterCount: 6 });
+ok('ett anrop: stoppar sammansättningsledtråd', fragment?.legal === false,
+   fragment === null ? 'INGET SVAR (fail open)' : JSON.stringify(fragment));
+
+const describing = await guardedGuesser({ clue: 'kaffe', letterCount: 4 });
+ok('ett anrop: tillåter beskrivande sammansättning', describing?.legal === true,
+   describing === null ? 'INGET SVAR' : JSON.stringify(describing));
+
 const creative = await guardedGuesser({ clue: 'kaninglass', letterCount: 5 });
 ok('ett anrop: tillåter påhittad svensk sammansättning', creative?.legal === true,
    creative === null ? 'INGET SVAR' : JSON.stringify(creative));

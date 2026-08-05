@@ -68,6 +68,26 @@ Reglerna i prompten är medvetet generösa mot kreativitet: påhittade svenska
 sammansättningar och ovanliga bilder är tillåtna. Det är bara uppenbara genvägar
 (annat språk, förkortning, stavningstrick) som stoppas.
 
+### Sammansättningsledtrådar
+
+”skit…” löser *stövel* utan att beskriva en stövel — det är en lucka att fylla i,
+samma familj som rim- och stavningstrick. Skälet att stoppa det är inte att det
+är fult utan att det är **dominant**: nästan varje svenskt substantiv är ett
+sammansättningsled, så tillåtet blir det *enda* draget som behövs, varje dag, och
+prefixen är korta nog att äga topplistan. Spelet skulle kollapsa till ”hitta
+kortaste ordled som passar ihop med dagens ord”.
+
+Gränsen: **beskriver ledtråden saken, eller pekar den bara ut ordet?**
+”kaninmat” beskriver vad en morot är för en kanin — tillåtet. ”kaffe” beskriver
+vad en kopp används till — tillåtet. ”skit” beskriver ingenting — otillåtet.
+
+Varför inte en kodkontroll på *ledtråd + målord finns i ordlistan*? För att
+svensk sammansättning är så produktiv att den kontrollen skulle underkänna
+massor av bra ledtrådar: `vakthund`, `kaffekopp`, `solros` och `handduk` finns
+alla i ordlistan, så ”kaffe” till **kopp** och ”sol” till **ros** skulle ryka.
+Koden fångar därför bara den entydiga signalen (ellips, hängande bindestreck);
+resten är omdöme och bor i prompten.
+
 Alla AI-*kontroller* misslyckas öppet (fail open) — en flaky kontroll blockerar
 aldrig spel.
 
@@ -95,6 +115,7 @@ Deterministiska kontroller i kod (`server/util.js`):
   `server/util.js` — enda stället; UI:t hämtar gränsen från `/api/state` och
   speglar räkningen enbart för att visa siffran).
 - Emoji avvisas via Unicode property-regex före alla API-anrop.
+- Uppenbara ifyllnadsledtrådar: ellips eller hängande bindestreck (”skit…”).
 - Målord/förbjudna ord som (normaliserad) delsträng i ledtråden.
 
 ### Par och tak

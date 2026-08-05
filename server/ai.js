@@ -124,8 +124,11 @@ STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. paraply, jobb, tv) är tillåtna.
 2. Innehåller förkortningar.
 3. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller ljud i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
+4. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "skit" för att leda till skitstövel, "arbets" för att leda till arbetsdag). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
 
-Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder och kreativa omskrivningar är TILLÅTNA så länge de är på svenska och beskriver betydelse. Avvisa bara det som klart bryter mot 1–3.
+Viktigt: sammansättningar som *beskriver* saken är fortfarande TILLÅTNA. "kaninmat" som ledtråd till morot beskriver vad en morot är för en kanin — det är bra. "kaffe" som ledtråd till kopp beskriver vad koppen används till — också bra. Det är bara ordled utan egen beskrivande kraft som stoppas.
+
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder och kreativa omskrivningar är TILLÅTNA så länge de är på svenska och beskriver betydelse. Avvisa bara det som klart bryter mot 1–4.
 
 STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt ${letterCount} bokstäver. Hitta inte på ord.
 

@@ -96,6 +96,12 @@ export function letterCount(word) {
 
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
+// An ellipsis or a dangling hyphen turns a clue into a fill-in-the-blank:
+// "skit…" doesn't describe a boot, it asks the model to complete a compound.
+// Only the explicit signal is caught here — whether a clue describes or merely
+// completes is judgment, and lives in the prompt.
+const FRAGMENT_RE = /(\.{2,}|…|^-|-$|^\s*-|-\s*$)/;
+
 /**
  * Deterministic clue checks, run before any API call.
  * Returns null if the clue passes, otherwise { code, reason } (reason in Swedish,
@@ -116,6 +122,12 @@ export function checkClueCode(clue, target, forbidden) {
   }
   if (EMOJI_RE.test(raw)) {
     return { code: 'emoji', reason: 'Emoji är inte tillåtna i ledtråden.' };
+  }
+  if (FRAGMENT_RE.test(raw.trim())) {
+    return {
+      code: 'fragment',
+      reason: 'Ledtråden får inte vara en halv sammansättning att fylla i. Beskriv ordet i stället.',
+    };
   }
   if (n.includes(normalize(target))) {
     return { code: 'contains_target', reason: 'Ledtråden innehåller det hemliga ordet.' };

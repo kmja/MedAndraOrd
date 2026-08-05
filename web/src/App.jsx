@@ -395,6 +395,11 @@ export default function App() {
               ner på topplistan. Mellanslag räknas inte.
             </li>
             <li>Svenska ord. Inga förkortningar eller bokstaveringstrick.</li>
+            <li>
+              Beskriv ordet — peka inte bara ut det. Ett ordled som ska fyllas i
+              till en sammansättning (”skit…”) räknas inte. Sammansättningar som
+              faktiskt beskriver saken är däremot fina.
+            </li>
             <li>Inte ordet självt, dess böjningar eller de spärrade orden.</li>
             <li>Inga översättningar av ordet till andra språk.</li>
             <li>Otillåtna ledtrådar och AI-missar kostar inget försök.</li>
