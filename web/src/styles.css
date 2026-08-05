@@ -147,6 +147,18 @@ h1 { margin: 0; font-family: var(--serif); font-size: 1.35rem; letter-spacing: 0
 .verdict-win { color: var(--correct); font-weight: 700; font-size: 1.1rem; animation: pop-in 0.4s 0.55s ease-out backwards; }
 .verdict-miss { color: var(--muted); }
 
+/* The AI's account of how it read the clue. Quiet and set in the serif, so it
+   reads as the machine talking rather than as another piece of UI. */
+.reasoning {
+  margin: 6px 0 0;
+  font-family: var(--serif);
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--muted);
+  animation: pop-in 0.32s 0.5s ease-out backwards;
+}
+.response:not(.is-latest) .reasoning { font-size: 0.85rem; }
+
 /* ---- the form steps aside while the reels turn ---- */
 .clue-form.is-away {
   opacity: 0;
@@ -551,6 +563,7 @@ footer li { margin-bottom: 3px; }
   .row-pending .box,
   input.is-invalid,
   .box.is-landing,
+  .reasoning,
   .win-dialog[open],
   .win-dialog[open].is-growing,
   .win-dialog[open]::backdrop,

@@ -194,6 +194,13 @@ function ResponseCard({ entry, pending, clue, letterCount, latest, children, spi
         <p className="verdict verdict-miss">Inte rätt ord</p>
       )}
 
+      {/* How the AI read the clue. Only after the reels have stopped — during
+          the settle it would announce the answer the animation is still
+          spelling out. Absent when the model didn't supply one. */}
+      {!pending && !settling && entry.why && (
+        <p className="reasoning">”{entry.why}”</p>
+      )}
+
       {children}
     </article>
   );
@@ -583,12 +590,16 @@ export default function App() {
         ? { kind: 'timeout', text: err.message }
         : { kind: 'error', text: err.message });
       setClue(text);
+      // Only here. In `finally` this ran the moment the request returned —
+      // which on the happy path is the moment the reveal STARTS — so it
+      // cancelled the animation and threw the answer away before it was ever
+      // committed to history.
+      setSettling(null);
       buzz();
     } finally {
-      // Always, on every path. This is what stops the reels: if it were only
-      // reached on success, any unhandled failure would spin forever.
+      // Always, on every path. This is what stops the reels when a request
+      // fails; on success the settle effect owns the rest of the sequence.
       setPendingClue(null);
-      setSettling(null);
       // After the re-render, not before: the field is still disabled at this
       // point (canPlay is false while a request is in flight) and focusing a
       // disabled input silently does nothing. On a failure the clue is left in

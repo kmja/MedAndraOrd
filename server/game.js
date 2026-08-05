@@ -83,7 +83,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
     // A guess equal to the target needs no checking at all — the target is a
     // real word by construction.
     if (normalize(guess) === normalize(target)) {
-      return { type: 'correct', guess };
+      return { type: 'correct', guess, why: result.why ?? null };
     }
 
     // Otherwise the dictionary decides, in code and for free, whether this is
@@ -94,7 +94,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       feedback.push({ guess, problem: 'not_word' });
       continue;
     }
-    return { type: 'wrong', guess };
+    return { type: 'wrong', guess, why: result.why ?? null };
   }
 
   return { type: 'ai_failure', guess: lastGuess }; // "räknas som miss"
@@ -108,9 +108,13 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
  *
  * Verdict shape:
  *   { type: 'rejected', reason, source: 'code'|'referee' }
- *   { type: 'correct',  guess, score }
- *   { type: 'wrong',    guess }
+ *   { type: 'correct',  guess, score, why }
+ *   { type: 'wrong',    guess, why }
  *   { type: 'ai_failure', guess }   // struck through in UI, counts as miss
+ *
+ * `why` is the guesser's own account of how it read the clue, shown to the
+ * player after the reveal. It is optional everywhere: a missing one is a
+ * slightly duller card, never a failed round.
  */
 export async function judgeClue({ clue, target, forbidden, maxLength, wordClass, ai = defaultAi }) {
   // 1. Deterministic checks — free, before any API call. The length limit is
@@ -133,10 +137,10 @@ export async function judgeClue({ clue, target, forbidden, maxLength, wordClass,
     return { type: 'rejected', reason: result.reason, source: 'referee' };
   }
   if (result.type === 'correct') {
-    return { type: 'correct', guess: result.guess, score: clueLength(clue) };
+    return { type: 'correct', guess: result.guess, score: clueLength(clue), why: result.why ?? null };
   }
   if (result.type === 'wrong') {
-    return { type: 'wrong', guess: result.guess };
+    return { type: 'wrong', guess: result.guess, why: result.why ?? null };
   }
   return { type: 'ai_failure', guess: result.guess ?? null };
 }

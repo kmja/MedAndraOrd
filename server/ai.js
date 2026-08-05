@@ -71,12 +71,29 @@ export function parseGuardedGuess(text) {
   if (!ruling.legal) return { legal: false, reason: ruling.reason };
   const match = String(text).match(/\{[\s\S]*\}/);
   try {
-    const guess = JSON.parse(match[0]).guess;
+    const { guess, why } = JSON.parse(match[0]);
     if (typeof guess !== 'string' || !guess.trim()) return null;
-    return { legal: true, guess };
+    // The reasoning is a nicety. A missing or malformed one must never turn a
+    // perfectly good guess into a failure, so it is read separately and
+    // defaulted to null rather than validated alongside the guess.
+    return { legal: true, guess, why: cleanReason(why) };
   } catch {
     return null;
   }
+}
+
+/**
+ * Tidy a model-written sentence for display. Exported for tests.
+ *
+ * Length is capped here rather than trusted to the prompt: the card has room
+ * for a sentence, and a model that ignores "max 100 tecken" should cost a
+ * clipped line, not a broken layout.
+ */
+export function cleanReason(text) {
+  if (typeof text !== 'string') return null;
+  const one = text.replace(/\s+/g, ' ').trim();
+  if (!one) return null;
+  return one.length > 120 ? `${one.slice(0, 119).trimEnd()}…` : one;
 }
 
 /**
@@ -201,7 +218,7 @@ export async function guardedGuesser({ clue, letterCount, wordClass, feedback = 
   }
 
   try {
-    const response = await generate({ system, contents, maxOutputTokens: 150, json: true, onFailure });
+    const response = await generate({ system, contents, maxOutputTokens: 260, json: true, onFailure });
     return parseGuardedGuess(textOf(response));
   } catch (err) {
     console.error(`guardedGuesser failed (${classifyApiError(err)}):`, err.message);
@@ -285,8 +302,10 @@ ${classLine(wordClass)}
 
 ${GUESS_FORM}
 
+Skriv också EN kort mening om hur du läste ledtråden och varför den ledde dig till just det ordet. Den visas för spelaren, så den ska förklara din tolkning — inte upprepa ledtråden. Max 100 tecken.
+
 Svara ENDAST med JSON:
-{"legal": true, "guess": "ordet"}
+{"legal": true, "guess": "ordet", "why": "kort mening om din tolkning"}
 eller
 {"legal": false, "reason": "kort motivering på svenska"}`;
 }
@@ -317,7 +336,7 @@ export function parseBatchGuesses(text) {
     if (a.legal === false) {
       out.set(id, { legal: false, reason: a.reason || null });
     } else if (typeof a.guess === 'string' && a.guess.trim()) {
-      out.set(id, { legal: true, guess: a.guess });
+      out.set(id, { legal: true, guess: a.guess, why: cleanReason(a.why) });
     }
   }
   return out;
@@ -340,7 +359,7 @@ export async function batchedGuesser({ items, onFailure }) {
       system: batchGuesserSystemPrompt(),
       contents: [userTurn(lines.join('\n'))],
       // Each answer is short, but a truncated reply loses the whole batch.
-      maxOutputTokens: 120 * items.length + 200,
+      maxOutputTokens: 190 * items.length + 200,
       json: true,
       onFailure,
     });
@@ -379,8 +398,10 @@ STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablera
 
 ${GUESS_FORM}
 
+Skriv också för varje gissning EN kort mening om hur du läste ledtråden. Max 100 tecken.
+
 Svara ENDAST med JSON, ett svar per ledtråd, med samma id som i frågan:
-{"answers": [{"id": 1, "legal": true, "guess": "ordet"}, {"id": 2, "legal": false, "reason": "kort motivering"}]}`;
+{"answers": [{"id": 1, "legal": true, "guess": "ordet", "why": "kort mening"}, {"id": 2, "legal": false, "reason": "kort motivering"}]}`;
 }
 
 // Two corrections, both about the guess breaking its own rules: wrong length

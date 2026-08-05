@@ -394,7 +394,33 @@ function mockAi({ guesses, refereeRuling = { legal: true } }) {
 test('guesser loop: correct-length real word accepted first try', async () => {
   const ai = mockAi({ guesses: ['morot'] });
   const r = await runGuesserLoop({ clue: 'x', target: 'morot', targetLetterCount: 5, ai });
-  assert.deepEqual(r, { type: 'correct', guess: 'morot' });
+  assert.deepEqual(r, { type: 'correct', guess: 'morot', why: null });
+});
+
+test('the guesser reasoning is carried through to the verdict', async () => {
+  // Shown to the player after the reveal, so it has to survive the whole
+  // pipeline — and survive its own absence, since a model that omits it must
+  // still produce a playable round.
+  const withWhy = {
+    guardedGuesser: async () => ({ legal: true, guess: 'morot', why: 'Kaninmat pekar mot en rotfrukt.' }),
+  };
+  const v = await judgeClue({ clue: 'kaninmat', target: 'morot', forbidden: [], ai: withWhy });
+  assert.equal(v.type, 'correct');
+  assert.equal(v.why, 'Kaninmat pekar mot en rotfrukt.');
+
+  // A wrong guess explains itself too — that is the case where knowing how it
+  // read the clue is worth most.
+  const missed = {
+    guardedGuesser: async () => ({ legal: true, guess: 'banan', why: 'Jag läste det som en gul frukt.' }),
+  };
+  const w = await judgeClue({ clue: 'gul', target: 'morot', forbidden: [], ai: missed });
+  assert.equal(w.type, 'wrong');
+  assert.equal(w.why, 'Jag läste det som en gul frukt.');
+
+  const without = { guardedGuesser: async () => ({ legal: true, guess: 'morot' }) };
+  const bare = await judgeClue({ clue: 'x', target: 'morot', forbidden: [], ai: without });
+  assert.equal(bare.type, 'correct', 'a missing explanation must not fail the round');
+  assert.equal(bare.why, null);
 });
 
 test('a successful submission costs exactly one model call', async () => {

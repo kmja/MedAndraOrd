@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   textOf, parseRuling, guesserSystemPrompt, batchGuesserSystemPrompt,
-  parseBatchGuesses, classifyApiError, retryDelayMs,
+  parseBatchGuesses, cleanReason, classifyApiError, retryDelayMs,
 } from '../server/ai.js';
 import { WORDS } from '../server/words.js';
 import { normalize } from '../server/util.js';
@@ -152,8 +152,20 @@ test('parseBatchGuesses keeps clean answers and drops the rest', () => {
     {"id":"sex","legal":true,"guess":"fel id"}
   ]}`);
   assert.deepEqual([...got.keys()], [1, 2]);
-  assert.deepEqual(got.get(1), { legal: true, guess: 'stövel' });
+  assert.deepEqual(got.get(1), { legal: true, guess: 'stövel', why: null });
   assert.deepEqual(got.get(2), { legal: false, reason: 'Rim.' });
+});
+
+test('cleanReason tidies the sentence shown to the player', () => {
+  // Model-written text going straight onto a card. Length is capped here
+  // rather than trusted to the prompt — a model that ignores "max 100 tecken"
+  // should cost a clipped line, not a broken layout.
+  assert.equal(cleanReason('  Jag läste det   som\n en frukt. '), 'Jag läste det som en frukt.');
+  assert.equal(cleanReason('x'.repeat(300)).length, 120);
+  assert.match(cleanReason('x'.repeat(300)), /…$/);
+  for (const bad of [undefined, null, 123, '', '   ', {}]) {
+    assert.equal(cleanReason(bad), null, `expected null for ${JSON.stringify(bad)}`);
+  }
 });
 
 test('parseBatchGuesses returns null when the whole reply is unusable', () => {
