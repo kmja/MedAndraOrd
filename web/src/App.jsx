@@ -401,7 +401,7 @@ export default function App() {
               faktiskt beskriver saken är däremot fina.
             </li>
             <li>Inte ordet självt, dess böjningar eller de spärrade orden.</li>
-            <li>Inga översättningar av ordet till andra språk.</li>
+            <li>Inga översättningar av ordet till andra språk. Kända exempel går bra — ”etna” för vulkan.</li>
             <li>Otillåtna ledtrådar och AI-missar kostar inget försök.</li>
             <li>Poäng = antal tecken i din kortaste lyckade ledtråd. Lägre är bättre.</li>
             <li>Andras ledtrådar visas först när du klarat ordet eller gjort slut på försöken.</li>

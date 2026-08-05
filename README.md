@@ -68,6 +68,21 @@ Reglerna i prompten är medvetet generösa mot kreativitet: påhittade svenska
 sammansättningar och ovanliga bilder är tillåtna. Det är bara uppenbara genvägar
 (annat språk, förkortning, stavningstrick) som stoppas.
 
+### Kända exempel är tillåtna
+
+”etna” löser *vulkan* på fyra tecken, och det ska det få göra. Skillnaden mot
+sammansättningsledtråden är att det bygger på **betydelse**: ”skit” fungerar utan
+att man vet vad en stövel är, medan ”etna” bara fungerar om man vet vad Etna är.
+Det är precis den slutledningen spelet ber om, och det är klassiskt Taboo-drag.
+Det är inte heller dominant — vulkaner och torn har kända exempel, men kudde och
+hylla har det inte.
+
+Fällan var att det fungerade **av misstag**: regel 1 förbjuder ”ord från andra
+språk”, och Etna är ett italienskt egennamn. Modellen tillämpade inte regeln
+strikt, men en omformulerad prompt eller en ny modell kunde börja avvisa
+egennamn när som helst — och felet hade synts först när en spelare klagade.
+Därför står tillåtelsen nu uttryckligen i prompten, och `check:ai` provar den.
+
 ### Sammansättningsledtrådar
 
 ”skit…” löser *stövel* utan att beskriva en stövel — det är en lucka att fylla i,

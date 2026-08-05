@@ -51,6 +51,12 @@ const describing = await guardedGuesser({ clue: 'kaffe', letterCount: 4 });
 ok('ett anrop: tillåter beskrivande sammansättning', describing?.legal === true,
    describing === null ? 'INGET SVAR' : JSON.stringify(describing));
 
+// Proper nouns must survive rule 1, which bans foreign words. This is the
+// check most likely to regress on a prompt or model change.
+const propernoun = await guardedGuesser({ clue: 'etna', letterCount: 6 });
+ok('ett anrop: tillåter känt exempel (egennamn)', propernoun?.legal === true,
+   propernoun === null ? 'INGET SVAR' : JSON.stringify(propernoun));
+
 const creative = await guardedGuesser({ clue: 'kaninglass', letterCount: 5 });
 ok('ett anrop: tillåter påhittad svensk sammansättning', creative?.legal === true,
    creative === null ? 'INGET SVAR' : JSON.stringify(creative));
