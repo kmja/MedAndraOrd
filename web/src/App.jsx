@@ -9,12 +9,36 @@ import React, { useEffect, useRef, useState } from 'react';
 // obviously illegal clue never starts the reveal animation.
 import { checkClueCode } from '../../server/util.js';
 
+// A request that never settles leaves the reveal animation running forever,
+// which reads as the game being broken rather than as a request being slow.
+// The server has its own deadline; this is the backstop for everything below
+// it — a dropped connection, a sleeping phone, a proxy that goes quiet.
+const REQUEST_TIMEOUT_MS = 40_000;
+
+// Both mean the same thing to a player: the request never came back, so no
+// attempt was spent. Distinguished from an HTTP error, where the server did
+// answer and its message is worth showing.
+class UnreachableError extends Error {}
+
 async function api(path, options) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    ...options,
-  });
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), REQUEST_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      signal: abort.signal,
+      ...options,
+    });
+  } catch (err) {
+    // A timeout, a dropped connection, a sleeping phone, an offline tab — the
+    // browser reports these as a bare TypeError, and "Failed to fetch" is not
+    // something to show anyone.
+    throw new UnreachableError(abort.signal.aborted ? 'timeout' : 'network');
+  } finally {
+    clearTimeout(timer);
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || 'Något gick fel.');
   return body;
@@ -552,12 +576,25 @@ export default function App() {
         buzz();
       }
     } catch (err) {
-      setNotice({ kind: 'error', text: err.message });
+      // A timeout is not the same as an error, and saying so matters: the
+      // player needs to know whether that attempt was spent. It was not — the
+      // server only counts an attempt once it has a verdict to return.
+      setNotice(err instanceof UnreachableError
+        ? { kind: 'timeout', text: err.message }
+        : { kind: 'error', text: err.message });
       setClue(text);
       buzz();
     } finally {
+      // Always, on every path. This is what stops the reels: if it were only
+      // reached on success, any unhandled failure would spin forever.
       setPendingClue(null);
-      inputRef.current?.focus();
+      setSettling(null);
+      // After the re-render, not before: the field is still disabled at this
+      // point (canPlay is false while a request is in flight) and focusing a
+      // disabled input silently does nothing. On a failure the clue is left in
+      // the box, so this is the difference between retrying with one keypress
+      // and having to click first.
+      setTimeout(() => inputRef.current?.focus(), 0);
     }
   }
 
@@ -712,6 +749,16 @@ export default function App() {
               <>
                 <strong>AI:n gav inget giltigt svar</strong>
                 {notice.guess ? <> (<s>{notice.guess}</s>)</> : null}.{' '}
+                <em>Kostade inget försök — prova igen.</em>
+              </>
+            )}
+            {notice.kind === 'timeout' && (
+              <>
+                <strong>
+                  {notice.text === 'timeout'
+                    ? 'Det tog för lång tid.'
+                    : 'Ingen kontakt med servern.'}
+                </strong>{' '}
                 <em>Kostade inget försök — prova igen.</em>
               </>
             )}

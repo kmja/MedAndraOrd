@@ -5,6 +5,13 @@ import { isSwedishWord } from './dictionary.js';
 export const MAX_ATTEMPTS = 5; // per player per day — unlimited retries make it a grind
 export const MAX_GUESS_ROUNDS = 4;
 
+// A ceiling on the whole loop, not just on the number of rounds. Rounds bound
+// how many times we ask; this bounds how long the asking may take, which is
+// the number the player actually experiences. Comfortably inside the 60s
+// serverless limit, so the request returns a real verdict rather than being
+// killed mid-flight and leaving the UI with nothing to show.
+export const GUESS_DEADLINE_MS = 25_000;
+
 /** Thrown when the guesser itself is unreachable — the one role that can't fail open. */
 export class AiUnavailableError extends Error {
   constructor() {
@@ -35,8 +42,13 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
   const feedback = [];
   let lastGuess = null;
   let blanks = 0;
+  const deadline = Date.now() + GUESS_DEADLINE_MS;
 
   for (let round = 0; round < MAX_GUESS_ROUNDS; round++) {
+    // Checked before asking again, not after: another round could take as long
+    // as the one that just used up the budget.
+    if (round > 0 && Date.now() > deadline) break;
+
     const result = await ai.guardedGuesser({ clue, letterCount: targetLetterCount, wordClass, feedback });
 
     if (result == null) {

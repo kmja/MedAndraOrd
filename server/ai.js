@@ -126,6 +126,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const RETRIES = 2;
 const BACKOFF_MS = [700, 1800];
 
+// A quota error can carry retryDelay: "59s". Honouring that literally is right
+// for the probe, which has all day — but this same function serves a player
+// watching a loading animation, and it made the reels spin for minutes. The
+// live path fails fast instead; the probe layers its own patient retry on top
+// through judgeClue's `ai` seam, so nothing is lost by capping here.
+const MAX_RETRY_WAIT_MS = 1200;
+
 async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false, onFailure }) {
   let lastErr;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
@@ -147,10 +154,11 @@ async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json =
       // A bad key fails identically on every attempt; waiting just makes the
       // player wait too.
       if (kind === 'auth' || kind === 'other' || attempt === RETRIES) throw err;
-      // The API sometimes answers a per-minute quota error with
-      // retryDelay: "0s", which is not an invitation to retry immediately —
-      // the window has not moved. Never wait less than our own backoff.
-      await sleep(Math.max(retryDelayMs(err) ?? 0, BACKOFF_MS[attempt]));
+      // Never less than our own backoff — a quota error can say retryDelay:
+      // "0s", which is not an invitation to retry immediately since the
+      // per-minute window has not moved. And never more than the cap, because
+      // a player is waiting.
+      await sleep(Math.min(Math.max(retryDelayMs(err) ?? 0, BACKOFF_MS[attempt]), MAX_RETRY_WAIT_MS));
     }
   }
   throw lastErr;
