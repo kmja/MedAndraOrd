@@ -277,6 +277,60 @@ function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, 
   );
 }
 
+// Shown once, on a first visit. The rules already live in the footer, but a
+// rulebook is not how anyone learns a game — the worked example is, so it does
+// the teaching and the prose stays out of its way.
+//
+// The example word is deliberately NOT from the bank. Teaching the game with a
+// real target would hand the player a free answer the day it came round.
+function IntroDialog({ dialogRef, onClose }) {
+  return (
+    <dialog ref={dialogRef} className="intro-dialog" onClose={onClose} aria-labelledby="intro-title">
+      <div className="intro-inner">
+        <h2 id="intro-title">Så funkar Ordknapp</h2>
+
+        <ol className="intro-steps">
+          <li>Du får ett ord. Skriv en ledtråd som får en AI att gissa det.</li>
+          <li>AI:n har aldrig sett ordet. Den ser bara din ledtråd och hur många bokstäver ordet har.</li>
+          <li><strong>Kortast vinner.</strong> Mellanslag räknas inte. Du har fem försök.</li>
+        </ol>
+
+        <div className="intro-example">
+          <span className="label">Till exempel</span>
+          <p className="intro-word">kompass</p>
+          <p className="intro-clue">
+            <span className="label">Din ledtråd</span>
+            <span>visar norr</span>
+          </p>
+          <div className="row row-correct" style={{ '--n': 7 }} aria-hidden="true">
+            {[...'KOMPASS'].map((c, i) => (
+              <span key={i} className="box" style={{ '--i': i }}>{c}</span>
+            ))}
+          </div>
+          <p className="intro-score">Rätt — <strong>9 tecken</strong></p>
+        </div>
+
+        <p className="intro-rules">
+          Du får inte använda ordet självt, dess böjningar eller de spärrade orden.
+          Inga rim- eller stavningstrick. Otillåtna ledtrådar kostar inget försök.
+        </p>
+
+        <button type="button" onClick={onClose}>Sätt igång</button>
+      </div>
+    </dialog>
+  );
+}
+
+// localStorage throws in some privacy modes, and a tutorial is not worth a
+// blank page — treat any failure as "not seen yet" and carry on.
+const INTRO_KEY = 'ordknapp_intro_seen';
+const introSeen = () => {
+  try { return localStorage.getItem(INTRO_KEY) === '1'; } catch { return false; }
+};
+const markIntroSeen = () => {
+  try { localStorage.setItem(INTRO_KEY, '1'); } catch { /* nothing to do */ }
+};
+
 export default function App() {
   const [state, setState] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -292,9 +346,11 @@ export default function App() {
   // solved panel without replaying the round.
   const [win, setWin] = useState(null);
   const [winOpen, setWinOpen] = useState(false);
+  const [introOpen, setIntroOpen] = useState(() => !introSeen());
   const [improving, setImproving] = useState(false);
   const inputRef = useRef(null);
   const dialogRef = useRef(null);
+  const introRef = useRef(null);
   const solvedRef = useRef(null);
 
   // The reels turn for as long as anything is unresolved.
@@ -326,6 +382,15 @@ export default function App() {
     const id = setTimeout(() => setSettling((s2) => s2 && { ...s2, revealed: s2.revealed + 1 }), 130);
     return () => clearTimeout(id);
   }, [settling]);
+
+  // The intro waits for the state to load, so it opens over a rendered page
+  // rather than over "Laddar…".
+  useEffect(() => {
+    const d = introRef.current;
+    if (!d) return;
+    if (introOpen && !d.open) d.showModal();
+    else if (!introOpen && d.open) d.close();
+  }, [introOpen, state]);
 
   // Drive the native dialog from state, so Esc and the buttons agree.
   useEffect(() => {
@@ -430,6 +495,12 @@ export default function App() {
   // The dialog's opener is inside a form that unmounts on a win, so the native
   // focus restore has nowhere to go and drops to <body>. Hand focus to the
   // panel that replaced it instead. Fires for Esc and the buttons alike.
+  function closeIntro() {
+    setIntroOpen(false);
+    markIntroSeen();
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
   function closeWin() {
     setWinOpen(false);
     setTimeout(() => solvedRef.current?.focus(), 0);
@@ -468,6 +539,9 @@ export default function App() {
       <header>
         <h1>Ordknapp</h1>
         <p className="tagline">Skriv en ledtråd. AI:n gissar. Kortast vinner.</p>
+        <button type="button" className="how-to" onClick={() => setIntroOpen(true)}>
+          Hur funkar det?
+        </button>
       </header>
 
       <main className="card">
@@ -622,6 +696,8 @@ export default function App() {
           <Leaderboard rows={state.leaderboard} standing={state.standing} />
         </section>
       )}
+
+      <IntroDialog dialogRef={introRef} onClose={closeIntro} />
 
       <WinDialog
         dialogRef={dialogRef}

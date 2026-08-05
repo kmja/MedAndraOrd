@@ -280,6 +280,59 @@ input.is-invalid {
 .notice em { font-style: normal; opacity: 0.85; }
 .notice s { opacity: 0.8; }
 
+/* ---- the first-run tutorial ---- */
+/* Same dialog mechanics as the win: backdrop, Esc and focus trap for free. */
+.intro-dialog {
+  width: min(400px, calc(100% - 28px));
+  max-height: calc(100dvh - 40px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 24px 64px rgba(35, 32, 27, 0.22);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.intro-dialog[open] { animation: dialog-in 0.34s cubic-bezier(0.2, 0.8, 0.3, 1); }
+.intro-dialog::backdrop { background: rgba(35, 32, 27, 0.42); }
+.intro-dialog[open]::backdrop { animation: fade-in 0.24s ease-out; }
+
+.intro-inner { padding: 24px 20px 20px; }
+.intro-inner h2 { font-size: 1.3rem; margin-bottom: 14px; }
+
+.intro-steps { margin: 0 0 18px; padding-left: 1.2em; }
+.intro-steps li { margin-bottom: 7px; font-size: 0.94rem; }
+
+/* The example does the teaching, so it gets the visual weight of a real turn. */
+.intro-example {
+  background: #faf7f0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.intro-example .label { display: block; }
+.intro-word {
+  margin: 6px 0 12px;
+  font-family: var(--serif); font-size: 1.7rem; font-weight: 700; line-height: 1;
+}
+.intro-clue { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 12px; }
+.intro-clue > span:last-child { font-family: var(--serif); font-size: 1.05rem; }
+.intro-example .row { --box: 30px; }
+.intro-score { margin: 10px 0 0; font-size: 0.9rem; color: var(--correct); }
+
+.intro-rules { margin: 16px 0 0; font-size: 0.85rem; color: var(--muted); }
+.intro-inner button { width: 100%; margin-top: 18px; }
+
+/* A quiet way back in, for anyone who dismissed it too fast. */
+.how-to {
+  margin-left: auto;
+  background: none; border: none; padding: 0;
+  color: var(--faint); font-size: 0.8rem; font-weight: 500;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.how-to:hover { color: var(--ink); }
+
 /* ---- the win ---- */
 /* A solve ends the round, so it gets the screen rather than another card in
    the stack. Native <dialog> brings the backdrop, Esc and the focus trap. */
@@ -461,6 +514,8 @@ footer li { margin-bottom: 3px; }
   input.is-invalid,
   .win-dialog[open],
   .win-dialog[open]::backdrop,
+  .intro-dialog[open],
+  .intro-dialog[open]::backdrop,
   .win-kicker,
   .thinking i { animation: none; }
   .sparkles { display: none; }
