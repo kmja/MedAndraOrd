@@ -207,6 +207,68 @@ function Leaderboard({ rows, standing, compact }) {
   );
 }
 
+/**
+ * The win. A solve is the end of a round, not another card in a list, so it
+ * takes over the screen: the clue-writing flow stops and this is the only
+ * thing to respond to. Carrying on to shave a character is then a deliberate
+ * choice rather than the default.
+ */
+function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, onClose, dialogRef }) {
+  return (
+    <dialog ref={dialogRef} className="win-dialog" onClose={onClose} aria-labelledby="win-title">
+      {win && (
+        <div className="win-inner">
+          <div className="win-burst">
+            <span className="sparkles" aria-hidden="true">
+              {Array.from({ length: 14 }, (_, i) => <i key={i} style={{ '--s': i }} />)}
+            </span>
+            <p className="win-kicker">{win.improved ? 'Nytt bästa idag' : 'Rätt!'}</p>
+            <p className="win-score"><strong>{win.entry.score}</strong> tecken</p>
+            {/* Solving it again with a longer clue is still a solve, but the
+                score on the board is the shortest one — say so, or the big
+                number here reads as their result. */}
+            {!win.improved && win.prevBest != null && win.entry.score > win.prevBest && (
+              <p className="win-note">Ditt resultat står kvar på {win.prevBest} tecken.</p>
+            )}
+          </div>
+
+          <p className="win-clue">
+            <span className="label">Din ledtråd</span>
+            <span>{win.entry.clue}</span>
+            <span className="win-arrow" aria-hidden="true">→</span>
+            <span className="win-word">{word}</span>
+          </p>
+
+          <h2 id="win-title" className="visually-hidden">
+            Rätt! {win.entry.score} tecken.
+          </h2>
+
+          <Leaderboard rows={leaderboard} standing={standing} compact />
+
+          <div className="win-actions">
+            {attemptsLeft > 0 ? (
+              <>
+                <button type="button" onClick={onImprove}>
+                  Försök bli kortare
+                </button>
+                <button type="button" className="ghost" onClick={onClose}>
+                  Klart för idag
+                </button>
+                <p className="win-note">{attemptsLeft} försök kvar</p>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={onClose}>Stäng</button>
+                <p className="win-note">Inga försök kvar — nytt ord imorgon.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </dialog>
+  );
+}
+
 export default function App() {
   const [state, setState] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -218,7 +280,14 @@ export default function App() {
   const [spin, setSpin] = useState(0);
   const [settling, setSettling] = useState(null); // { entry, revealed }
   const [invalid, setInvalid] = useState(false);
+  // The win is kept after the dialog closes, so it can be reopened from the
+  // solved panel without replaying the round.
+  const [win, setWin] = useState(null);
+  const [winOpen, setWinOpen] = useState(false);
+  const [improving, setImproving] = useState(false);
   const inputRef = useRef(null);
+  const dialogRef = useRef(null);
+  const solvedRef = useRef(null);
 
   // The reels turn for as long as anything is unresolved.
   const spinning = pendingClue !== null || settling !== null;
@@ -235,6 +304,13 @@ export default function App() {
     if (settling.revealed >= total) {
       const id = setTimeout(() => {
         setHistory((h) => [settling.entry, ...h]);
+        // The celebration waits for the last reel: opening it earlier would
+        // give away the answer the animation is still spelling out.
+        if (settling.celebrate) {
+          setWin({ entry: settling.entry, ...settling.celebrate });
+          setWinOpen(true);
+          setImproving(false);
+        }
         setSettling(null);
       }, 180);
       return () => clearTimeout(id);
@@ -242,6 +318,14 @@ export default function App() {
     const id = setTimeout(() => setSettling((s2) => s2 && { ...s2, revealed: s2.revealed + 1 }), 130);
     return () => clearTimeout(id);
   }, [settling]);
+
+  // Drive the native dialog from state, so Esc and the buttons agree.
+  useEffect(() => {
+    const d = dialogRef.current;
+    if (!d) return;
+    if (winOpen && !d.open) d.showModal();
+    else if (!winOpen && d.open) d.close();
+  }, [winOpen]);
 
   // A refused clue buzzes the field, the way a form rejects a bad phone number.
   function buzz() {
@@ -267,6 +351,9 @@ export default function App() {
   const attempts = history.filter(isAttempt);
   const solved = attempts.some((h) => h.type === 'correct');
   const canPlay = !outOfAttempts && !busy && settling === null;
+  // Once the word is solved the round is over. Writing another clue is opt-in,
+  // via the dialog or the solved panel.
+  const showForm = Boolean(practice) || !solved || (improving && !outOfAttempts);
 
   async function submit(e) {
     e.preventDefault();
@@ -281,8 +368,13 @@ export default function App() {
         : { clue: text };
       const res = await api('/api/clue', { method: 'POST', body: JSON.stringify(body) });
       const entry = { clue: text, ...res.result };
+      // Read against the score before this submission, so "nytt bästa" means
+      // they actually beat themselves rather than merely solved it again.
+      const celebrate = entry.type === 'correct' && !res.practice
+        ? { improved: state.best != null && entry.score < state.best, prevBest: state.best }
+        : null;
       // A guess gets the reel-stop treatment; everything else resolves at once.
-      if (isAttempt(entry) && entry.guess) setSettling({ entry, revealed: 0 });
+      if (isAttempt(entry) && entry.guess) setSettling({ entry, revealed: 0, celebrate });
       else setHistory((h) => [entry, ...h]);
       if (!res.practice) {
         setState((s) => ({
@@ -312,6 +404,23 @@ export default function App() {
       setPendingClue(null);
       inputRef.current?.focus();
     }
+  }
+
+  // Reopening the round: close the celebration and put the cursor back where
+  // the next clue goes.
+  function startImproving() {
+    setWinOpen(false);
+    setImproving(true);
+    setNotice(null);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  // The dialog's opener is inside a form that unmounts on a win, so the native
+  // focus restore has nowhere to go and drops to <body>. Hand focus to the
+  // panel that replaced it instead. Fires for Esc and the buttons alike.
+  function closeWin() {
+    setWinOpen(false);
+    setTimeout(() => solvedRef.current?.focus(), 0);
   }
 
   async function randomize() {
@@ -361,7 +470,29 @@ export default function App() {
           </div>
         </div>
 
+        {/* The round is over — nothing to write until they choose to. */}
+        {!showForm && (
+          <div className="solved-panel">
+            <p className="solved-line">
+              Klarat på <strong>{state.best} tecken</strong>.
+            </p>
+            {state.attemptsLeft > 0 ? (
+              <button type="button" ref={solvedRef} onClick={startImproving}>
+                Försök bli kortare · {state.attemptsLeft} försök kvar
+              </button>
+            ) : (
+              <p className="muted">Inga försök kvar. Nytt ord imorgon.</p>
+            )}
+            {win && (
+              <button type="button" className="ghost" onClick={() => setWinOpen(true)}>
+                Visa resultatet
+              </button>
+            )}
+          </div>
+        )}
+
         {/* The input lives at the top: each answer is pushed down beneath it. */}
+        {showForm && (
         <form onSubmit={submit} className={inFlight ? 'clue-form is-away' : 'clue-form'} aria-hidden={inFlight}>
           <p className={outOfAttempts ? 'attempts attempts-out' : 'attempts'}>{attemptsLabel}</p>
           <div className="input-row">
@@ -395,6 +526,7 @@ export default function App() {
             average={practice ? null : state.dayAverage}
           />
         </form>
+        )}
 
         {notice && (
           <div className={`notice notice-${notice.kind}`} role="status">
@@ -432,18 +564,15 @@ export default function App() {
               revealed={settling.revealed}
             />
           )}
+          {/* The board is no longer nested here: a win opens the dialog, and
+              the page keeps one board, in one place, below. */}
           {attempts.map((entry, i) => (
             <ResponseCard
               key={attempts.length - i}
               entry={entry}
               letterCount={active.letterCount}
               latest={!busy && i === 0}
-            >
-              {/* The win shows the day's board and where you landed on it. */}
-              {entry.type === 'correct' && !busy && i === 0 && !practice && (
-                <Leaderboard rows={state.leaderboard} standing={state.standing} compact />
-              )}
-            </ResponseCard>
+            />
           ))}
         </div>
 
@@ -462,8 +591,9 @@ export default function App() {
         )}
       </main>
 
-      {/* The standalone board stays for players who haven't solved it yet. */}
-      {!practice && !solved && (
+      {/* One board, always in the same place — locked before the solve,
+          revealed after it. The dialog shows a copy for the moment itself. */}
+      {!practice && (
         <section className="card">
           {state.durable === false && (
             <p className="warn">Ingen databas är kopplad — resultaten försvinner när servern startar om.</p>
@@ -471,6 +601,18 @@ export default function App() {
           <Leaderboard rows={state.leaderboard} standing={state.standing} />
         </section>
       )}
+
+      <WinDialog
+        dialogRef={dialogRef}
+        open={winOpen}
+        win={win}
+        word={state.word}
+        attemptsLeft={state.attemptsLeft}
+        leaderboard={state.leaderboard}
+        standing={state.standing}
+        onImprove={startImproving}
+        onClose={closeWin}
+      />
 
       <footer>
         <details>
