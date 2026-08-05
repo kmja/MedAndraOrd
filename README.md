@@ -28,7 +28,7 @@ En AI-roll (bakom serverproxyn — API-nyckeln lämnar aldrig servern):
 
 | Roll | Ser | Uppgift |
 |---|---|---|
-| **Gissaren** (`guardedGuesser`) | Endast ledtråden + antal bokstäver | Bedömer ledtråden mot de regler som bara handlar om ledtråden, och gissar sedan ordet — i **samma anrop**. Retry-loop (max 4 rundor): fel längd fångas i kod och åter-promptas. |
+| **Gissaren** (`guardedGuesser`) | Endast ledtråden + antal bokstäver | Bedömer ledtråden mot de regler som bara handlar om ledtråden, och gissar sedan ordet — i **samma anrop**. Retry-loop (max 4 rundor) när AI:n själv bryter mot reglerna: fel längd fångas i kod, påhittade ord av ordlistan. |
 
 Verifieraren är borta: en **ordlista i kod** (`server/dictionary.js`) avgör om
 en felaktig gissning ändå är ett riktigt svenskt ord. Gratis, deterministiskt
@@ -49,12 +49,14 @@ någonsin hamnar i modellens kontext. Blindheten är exakt lika intakt — promp
 innehåller ledtråden och antalet bokstäver, inget annat. Det finns ett test som
 misslyckas om målordet eller ett spärrat ord läcker in i anropet.
 
-**Varje utfall kostar ett modellanrop.** En rätt gissning behöver ingen
+**Normalfallet kostar ett modellanrop.** En rätt gissning behöver ingen
 kontroll alls (målordet är per definition ett riktigt ord), en felaktig
 gissning avgörs av ordlistan i kod, och en olaglig ledtråd stoppas i samma
-svar. Det enda som kan kosta ett andra anrop är en gissning med fel antal
-bokstäver, som promptas om — en påhittad gissning promptas *inte* om, utan
-rapporteras direkt som miss.
+svar.
+
+Extra anrop uppstår bara när **AI:n** bryter mot sina egna regler — fel antal
+bokstäver eller ett påhittat ord. Då promptas den om (max 4 rundor). Se
+*Spelaren straffas aldrig för AI:ns fel* nedan.
 
 Priset för detta: den gamla domaren såg facit och kunde peka på en *översättning*
 direkt. Nu täcks det indirekt — en översättning till ett annat språk är inte ett
@@ -67,8 +69,26 @@ sammansättningar och ovanliga bilder är tillåtna. Det är bara uppenbara genv
 (annat språk, förkortning, stavningstrick) som stoppas.
 
 Alla AI-*kontroller* misslyckas öppet (fail open) — en flaky kontroll blockerar
-aldrig spel. Om gissar-loopen tar slut visas gissningen genomstruken och
-**räknas som miss** — en regelbrytande gissning presenteras aldrig som giltig.
+aldrig spel.
+
+### Spelaren straffas aldrig för AI:ns fel
+
+Två utfall är spelarens ansvar och kostar ett försök: **rätt** och **fel
+gissning**. Två är det inte, och kostar ingenting:
+
+- **Avvisad ledtråd** — nådde aldrig gissaren.
+- **AI-miss** (`ai_failure`) — modellen svarade med fel antal bokstäver eller
+  ett påhittat ord, gång på gång, på en fullt laglig ledtråd.
+
+En påhittad gissning promptas om tills modellen lyder (max 4 rundor). Först om
+den aldrig lyckas blir det en `ai_failure`, som visas genomstruken med texten
+*”kostade inget försök — prova igen”*. Reglerna bor i `costsAttempt()` och
+`isCacheableVerdict()` i `server/game.js`, med tester.
+
+`ai_failure` **cacheas inte**. Övriga utslag cacheas per dag så identiska
+ledtrådar bedöms lika, men en AI-miss är inte ett utslag om ledtråden — cachead
+skulle den frysa ledtråden som permanent misslyckad, och en ny inskickning
+skulle aldrig kunna få ett nytt försök till en riktig gissning.
 
 Deterministiska kontroller i kod (`server/util.js`):
 - Max 10 tecken, mellanslag oräknade (`MAX_CLUE_LENGTH` + `clueLength()` i

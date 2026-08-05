@@ -151,10 +151,13 @@ eller
   }
 }
 
-// Only one correction survives: wrong length. A non-word guess is settled by
-// the dictionary in code and never re-prompted, so it costs no extra request.
+// Two corrections, both about the guess breaking its own rules: wrong length
+// (caught in code) and not a real word (caught by the dictionary). Either way
+// the player wrote a legal clue, so the AI is re-prompted until it complies.
 function guessCorrection(fb, letterCount) {
-  return `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
+  return fb.problem === 'length'
+    ? `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`
+    : `"${fb.guess}" är inte ett etablerat svenskt ord. Gissa ett riktigt svenskt ord i grundform med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
 }
 
 export const MODEL_ID = MODEL;

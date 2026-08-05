@@ -68,12 +68,12 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, ai }) {
     }
 
     // Otherwise the dictionary decides, in code and for free, whether this is
-    // a legitimate miss or a confabulation. Deliberately no retry on a
-    // confabulation: re-prompting would cost a second request, and the player
-    // has missed either way. Reporting it honestly is enough.
+    // a legitimate miss or a confabulation. A confabulation is the AI breaking
+    // its own rules, so it is re-prompted rather than passed on to the player.
     const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
     if (real === false) {
-      return { type: 'ai_failure', guess };
+      feedback.push({ guess, problem: 'not_word' });
+      continue;
     }
     return { type: 'wrong', guess };
   }
@@ -118,4 +118,29 @@ export async function judgeClue({ clue, target, forbidden, ai = defaultAi }) {
     return { type: 'wrong', guess: result.guess };
   }
   return { type: 'ai_failure', guess: result.guess ?? null };
+}
+
+/**
+ * Does this verdict cost the player one of their daily attempts?
+ *
+ * Only outcomes the player is responsible for. A clue refused by the rules
+ * never reached the guesser, and an AI failure means the model could not
+ * produce a legal answer to a legal clue after several tries — neither is the
+ * player's doing, and charging for them would punish people for the AI
+ * misbehaving.
+ */
+export function costsAttempt(verdict) {
+  return verdict?.type === 'correct' || verdict?.type === 'wrong';
+}
+
+/**
+ * Should this verdict be cached as the day's ruling for that clue?
+ *
+ * Rulings about the clue are cached so identical clues resolve identically.
+ * An AI failure is not a ruling — it is transient misbehaviour — and caching
+ * it would freeze the clue as permanently failed, so a resubmission could
+ * never get a fresh attempt at a real guess.
+ */
+export function isCacheableVerdict(verdict) {
+  return verdict?.type !== 'ai_failure';
 }

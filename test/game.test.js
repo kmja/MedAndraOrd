@@ -6,7 +6,9 @@ import {
   sanitizeName, dayNumber, MAX_CLUE_LENGTH,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
-import { runGuesserLoop, judgeClue, MAX_GUESS_ROUNDS } from '../server/game.js';
+import {
+  runGuesserLoop, judgeClue, costsAttempt, isCacheableVerdict, MAX_GUESS_ROUNDS,
+} from '../server/game.js';
 
 // ---------------------------------------------------------------------------
 // util
@@ -186,13 +188,41 @@ test('a wrong guess also costs exactly one call', async () => {
   assert.equal(ai.calls.guarded, 1);
 });
 
-test('a confabulated guess costs one call and is not re-prompted', async () => {
-  // Right length, not a word — the case the dictionary exists for.
+test('a confabulated guess is re-prompted until the AI complies', async () => {
+  // The player wrote a legal clue; the AI broke its own rules. Re-prompt.
+  const ai = mockAi({ guesses: ['zxcvb', 'qwrtp', 'kanin'] });
+  const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
+  assert.equal(v.type, 'wrong', 'should land on the first real word it produces');
+  assert.equal(v.guess, 'kanin');
+  assert.equal(ai.calls.guarded, 3);
+});
+
+test('an AI that never complies ends as ai_failure, not as a miss', async () => {
   const ai = mockAi({ guesses: ['zxcvb'] });
   const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'ai_failure');
-  assert.equal(v.guess, 'zxcvb');
-  assert.equal(ai.calls.guarded, 1, 'a non-word must not trigger a retry');
+  assert.equal(ai.calls.guarded, MAX_GUESS_ROUNDS);
+});
+
+// ---------------------------------------------------------------------------
+// fairness: the player is never charged for the AI misbehaving
+// ---------------------------------------------------------------------------
+
+test('only outcomes the player is responsible for cost an attempt', () => {
+  assert.equal(costsAttempt({ type: 'correct' }), true);
+  assert.equal(costsAttempt({ type: 'wrong' }), true);
+  assert.equal(costsAttempt({ type: 'rejected' }), false, 'never reached the guesser');
+  assert.equal(costsAttempt({ type: 'ai_failure' }), false, 'the AI failed, not the player');
+  assert.equal(costsAttempt(null), false);
+});
+
+test('AI failures are not cached as the day\'s ruling', () => {
+  // Caching one would freeze the clue as permanently failed, so resubmitting
+  // could never get a fresh attempt at a real guess.
+  assert.equal(isCacheableVerdict({ type: 'ai_failure' }), false);
+  assert.equal(isCacheableVerdict({ type: 'rejected' }), true);
+  assert.equal(isCacheableVerdict({ type: 'correct' }), true);
+  assert.equal(isCacheableVerdict({ type: 'wrong' }), true);
 });
 
 test('an illegal clue costs one call and no more', async () => {
@@ -225,12 +255,12 @@ test('guesser loop: wrong length re-prompted, then accepted', async () => {
   assert.equal(r.type, 'wrong');
 });
 
-test('guesser loop: a non-word is reported as ai_failure, not retried', async () => {
-  const ai = mockAi({ guesses: ['zxcvbn'] });
+test('guesser loop: a non-word is re-prompted, then accepted', async () => {
+  const ai = mockAi({ guesses: ['zxcvbn', 'stegen'] });
   const r = await runGuesserLoop({ clue: 'x', target: 'stövel', targetLetterCount: 6, ai });
-  assert.equal(r.type, 'ai_failure');
-  assert.equal(r.guess, 'zxcvbn');
-  assert.equal(ai.calls.guarded, 1);
+  assert.equal(r.type, 'wrong');
+  assert.equal(r.guess, 'stegen');
+  assert.equal(ai.calls.guarded, 2);
 });
 
 test(`guesser loop runs at most ${MAX_GUESS_ROUNDS} rounds`, async () => {

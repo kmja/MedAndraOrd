@@ -117,3 +117,23 @@ test('api/name moderates before storing', async () => {
   assert.equal(ok.statusCode, 200);
   assert.equal(ok.body.name, 'Anna b');
 });
+
+test('a rejected clue never consumes an attempt, however many times it is sent', async () => {
+  // Exercises the costsAttempt wiring through the real handler and store.
+  const [{ default: clueHandler }, { default: stateHandler }] = await Promise.all([
+    import('../api/clue.js'),
+    import('../api/state.js'),
+  ]);
+  const first = mockRes();
+  await stateHandler(mockReq(), first);
+  const cookie = first.headers['set-cookie'].split(';')[0];
+  const headers = { cookie };
+
+  for (let i = 0; i < 3; i++) {
+    const res = mockRes();
+    // Emoji: rejected in code, so this needs no API key.
+    await clueHandler(mockReq({ method: 'POST', headers, body: { clue: 'test 🥕' } }), res);
+    assert.equal(res.body.result.type, 'rejected');
+    assert.equal(res.body.attemptsLeft, 5, `attempt consumed on submission ${i + 1}`);
+  }
+});

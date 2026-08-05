@@ -292,10 +292,12 @@ function HistoryEntry({ entry, letterCount }) {
       <li className="entry failure">
         <span className="clue-line">{entry.clue}</span>
         {/* The loop exhausts on wrong length as well as on unreal words, so
-            this copy must cover both without claiming which one it was. */}
+            this copy must cover both without claiming which one it was. The
+            player wrote a legal clue; the AI failed to answer it properly, so
+            this costs them nothing. */}
         <span className="verdict">
           {entry.guess ? <><s>{entry.guess}</s> — inget giltigt svar.</> : 'AI:n gav inget giltigt svar.'}{' '}
-          <em>Räknas som miss.</em>
+          <em>Kostade inget försök — prova igen.</em>
         </span>
       </li>
     );

@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import { getStore } from './store.js';
 import { wordForDate, wordByIndex, randomWord, WORDS } from './words.js';
-import { judgeClue, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
+import { judgeClue, costsAttempt, isCacheableVerdict, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
 import { normalize, sanitizeName, todayInStockholm, MAX_CLUE_LENGTH } from './util.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
@@ -184,14 +184,15 @@ export async function clueHandler(req, res) {
       console.error('judgeClue failed:', err);
       return send(res, 500, { error: 'Något gick fel. Inget försök förbrukades.' });
     }
-    await store.cacheVerdict(date, index, normClue, verdict);
+    if (isCacheableVerdict(verdict)) {
+      await store.cacheVerdict(date, index, normClue, verdict);
+    }
   }
 
-  // Rejected clues never reach the guesser, so they cost nothing. Everything
-  // that did costs one attempt — including AI failures.
+  // Only outcomes the player is responsible for cost an attempt.
   let newAttempts = attempts;
   let best = await store.getBest(date, pid);
-  if (verdict.type !== 'rejected') {
+  if (costsAttempt(verdict)) {
     newAttempts = await store.incrAttempts(date, pid);
     if (verdict.type === 'correct') {
       best = await store.recordBest(date, pid, verdict.score);
