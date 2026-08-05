@@ -146,10 +146,10 @@ test('wordByIndex rejects out-of-range indexes from the client', () => {
 // guesser loop (mocked AI)
 // ---------------------------------------------------------------------------
 
-function mockAi({ guesses, verify = () => true, refereeRuling = { legal: true } }) {
+function mockAi({ guesses, refereeRuling = { legal: true } }) {
   let i = 0;
-  const calls = { guarded: 0, verifier: 0 };
-  const ai = {
+  const calls = { guarded: 0 };
+  return {
     calls,
     guardedGuesser: async () => {
       calls.guarded++;
@@ -158,9 +158,7 @@ function mockAi({ guesses, verify = () => true, refereeRuling = { legal: true } 
       }
       return { legal: true, guess: guesses[Math.min(i++, guesses.length - 1)] };
     },
-    verifier: async (w) => { calls.verifier++; return verify(w); },
   };
-  return ai;
 }
 
 test('guesser loop: correct-length real word accepted first try', async () => {
@@ -177,15 +175,24 @@ test('a successful submission costs exactly one model call', async () => {
   const v = await judgeClue({ clue: 'kaninmat', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'correct');
   assert.equal(ai.calls.guarded, 1);
-  assert.equal(ai.calls.verifier, 0, 'the target never needs verifying');
 });
 
-test('a wrong guess costs two calls: guess plus verification', async () => {
+test('a wrong guess also costs exactly one call', async () => {
+  // The dictionary settles "is this a real word" in code, so a legitimate
+  // miss needs no second request.
   const ai = mockAi({ guesses: ['kanin'] });
   const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'wrong');
   assert.equal(ai.calls.guarded, 1);
-  assert.equal(ai.calls.verifier, 1);
+});
+
+test('a confabulated guess costs one call and is not re-prompted', async () => {
+  // Right length, not a word — the case the dictionary exists for.
+  const ai = mockAi({ guesses: ['zxcvb'] });
+  const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
+  assert.equal(v.type, 'ai_failure');
+  assert.equal(v.guess, 'zxcvb');
+  assert.equal(ai.calls.guarded, 1, 'a non-word must not trigger a retry');
 });
 
 test('an illegal clue costs one call and no more', async () => {
@@ -194,7 +201,6 @@ test('an illegal clue costs one call and no more', async () => {
   assert.equal(v.type, 'rejected');
   assert.equal(v.source, 'referee');
   assert.equal(ai.calls.guarded, 1);
-  assert.equal(ai.calls.verifier, 0);
 });
 
 test('the guess prompt never receives the target or forbidden words', async () => {
@@ -203,7 +209,6 @@ test('the guess prompt never receives the target or forbidden words', async () =
   let seen = null;
   const ai = {
     guardedGuesser: async (args) => { seen = args; return { legal: true, guess: 'morot' }; },
-    verifier: async () => true,
   };
   await judgeClue({ clue: 'kaninmat', target: 'morot', forbidden: ['grönsak', 'orange'], ai });
   assert.deepEqual(Object.keys(seen).sort(), ['clue', 'feedback', 'letterCount']);
@@ -216,28 +221,22 @@ test('the guess prompt never receives the target or forbidden words', async () =
 test('guesser loop: wrong length re-prompted, then accepted', async () => {
   const ai = mockAi({ guesses: ['banan hej', 'kanin', 'morot'] });
   const r = await runGuesserLoop({ clue: 'x', target: 'morot', targetLetterCount: 5, ai });
-  // 'banan' (from 'banan hej') is 5 letters and verifies — a legitimate miss
+  // 'banan' (from 'banan hej') is 5 letters and is a real word — a legit miss
   assert.equal(r.type, 'wrong');
 });
 
-test('guesser loop: verifier rejection feeds back, loop can exhaust as ai_failure', async () => {
-  const ai = mockAi({ guesses: ['påhitt'], verify: () => false });
-  const r = await runGuesserLoop({ clue: 'x', target: 'morots', targetLetterCount: 6, ai });
+test('guesser loop: a non-word is reported as ai_failure, not retried', async () => {
+  const ai = mockAi({ guesses: ['zxcvbn'] });
+  const r = await runGuesserLoop({ clue: 'x', target: 'stövel', targetLetterCount: 6, ai });
   assert.equal(r.type, 'ai_failure');
-  assert.equal(r.guess, 'påhitt');
-});
-
-test('guesser loop: verifier failure fails open (null → accepted)', async () => {
-  const ai = mockAi({ guesses: ['kanin'], verify: () => null });
-  const r = await runGuesserLoop({ clue: 'x', target: 'morot', targetLetterCount: 5, ai });
-  assert.equal(r.type, 'wrong', 'an unavailable verifier must not turn a miss into a failure');
+  assert.equal(r.guess, 'zxcvbn');
+  assert.equal(ai.calls.guarded, 1);
 });
 
 test(`guesser loop runs at most ${MAX_GUESS_ROUNDS} rounds`, async () => {
   let calls = 0;
   const ai = {
     guardedGuesser: async () => { calls++; return { legal: true, guess: 'fel' }; }, // 3 letters, target is 5
-    verifier: async () => true,
   };
   const r = await runGuesserLoop({ clue: 'x', target: 'morot', targetLetterCount: 5, ai });
   assert.equal(calls, MAX_GUESS_ROUNDS);
@@ -264,7 +263,7 @@ test('judgeClue: referee rejection costs nothing and has a reason', async () => 
 
 test('judgeClue: an unusable first answer with nothing to show is unplayable', async () => {
   // Fail-open applies to the rule check, but a guess cannot be invented.
-  const ai = { guardedGuesser: async () => null, verifier: async () => true };
+  const ai = { guardedGuesser: async () => null };
   await assert.rejects(
     () => judgeClue({ clue: 'kaninmat', target: 'morot', forbidden: [], ai }),
     (e) => e.name === 'AiUnavailableError',

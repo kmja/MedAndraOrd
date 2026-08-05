@@ -1,5 +1,6 @@
 import { checkClueCode, normalize, clueLength, letterCount, extractWord } from './util.js';
 import * as defaultAi from './ai.js';
+import { isSwedishWord } from './dictionary.js';
 
 export const MAX_ATTEMPTS = 5; // per player per day — unlimited retries make it a grind
 export const MAX_GUESS_ROUNDS = 4;
@@ -18,10 +19,11 @@ export class AiUnavailableError extends Error {
  * never enters the model's context, so the guess stays blind.
  *
  * Wrong-length guesses are caught in code (free — and length feedback leaks
- * nothing, the guesser already knows the length) and re-prompted. Right-length
- * guesses go to the verifier, with failures fed back. If the loop exhausts,
- * the last guess is surfaced as an AI failure — a rule-breaking guess is never
- * presented as a legitimate outcome.
+ * nothing, the guesser already knows the length) and re-prompted; that retry is
+ * the only path that can cost a second request. Whether a right-length guess is
+ * a real word is settled by the dictionary, in code, with no retry — so every
+ * other outcome costs exactly one. A confabulated guess is still surfaced as an
+ * AI failure rather than presented as a legitimate miss.
  *
  * Returns one of:
  *   { type: 'rejected', reason }
@@ -59,17 +61,19 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, ai }) {
       continue;
     }
 
-    // A guess equal to the target needs no verification — the target is a real
-    // word by construction. This is what keeps a successful submission at
-    // exactly one model call.
+    // A guess equal to the target needs no checking at all — the target is a
+    // real word by construction.
     if (normalize(guess) === normalize(target)) {
       return { type: 'correct', guess };
     }
 
-    const real = await ai.verifier(guess); // null → fail open
+    // Otherwise the dictionary decides, in code and for free, whether this is
+    // a legitimate miss or a confabulation. Deliberately no retry on a
+    // confabulation: re-prompting would cost a second request, and the player
+    // has missed either way. Reporting it honestly is enough.
+    const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
     if (real === false) {
-      feedback.push({ guess, problem: 'not_word' });
-      continue;
+      return { type: 'ai_failure', guess };
     }
     return { type: 'wrong', guess };
   }

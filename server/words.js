@@ -355,7 +355,7 @@ export const WORDS = [
   { word: 'lera', forbidden: ['forma', 'krukmakare', 'jord', 'bränna', 'kruka'] },
   { word: 'staty', forbidden: ['sten', 'konst', 'torg', 'stå', 'brons'] },
   { word: 'målning', forbidden: ['konst', 'duk', 'färg', 'vägg', 'konstnär'] },
-  { word: 'sagа', forbidden: ['berättelse', 'barn', 'bok', 'prins', 'gång'] },
+  { word: 'saga', forbidden: ['berättelse', 'barn', 'bok', 'prins', 'gång'] },
   { word: 'mål', forbidden: ['fotboll', 'poäng', 'nät', 'skjuta', 'vinna'] },
   { word: 'lag', forbidden: ['spelare', 'match', 'tillsammans', 'tröja', 'sport'] },
   { word: 'match', forbidden: ['spela', 'lag', 'vinna', 'sport', 'publik'] },

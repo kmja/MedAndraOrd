@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Live smoke test of the three AI roles. Run this after changing provider,
+// Live smoke test of the AI call plus the dictionary. Run this after changing provider,
 // model or prompts — unit tests mock the model, so nothing else proves the
 // API shape is right. Costs a few tenths of a cent.
 //
@@ -7,7 +7,8 @@
 //
 // Exits non-zero if any role fails, so it can gate a deploy.
 
-import { guardedGuesser, verifier, MODEL_ID } from '../server/ai.js';
+import { guardedGuesser, MODEL_ID } from '../server/ai.js';
+import { isSwedishWord, dictionarySize } from '../server/dictionary.js';
 import { judgeClue } from '../server/game.js';
 
 if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
@@ -45,11 +46,10 @@ const creative = await guardedGuesser({ clue: 'kaninglass', letterCount: 5 });
 ok('ett anrop: tillåter påhittad svensk sammansättning', creative?.legal === true,
    creative === null ? 'INGET SVAR' : JSON.stringify(creative));
 
-// 2. Verifier must separate real words from invented ones.
-const real = await verifier('morot');
-const fake = await verifier('morotsnäsa');
-ok('verifierare: godkänner riktigt ord', real === true, `morot → ${real}`);
-ok('verifierare: underkänner påhittat ord', fake === false, `morotsnäsa → ${fake}`);
+// 2. Dictionary replaces the old verifier call — no API, no cost.
+ok('ordlista: laddad', dictionarySize() > 100000, `${dictionarySize()} ord`);
+ok('ordlista: godkänner riktigt ord', isSwedishWord('morot') === true);
+ok('ordlista: underkänner påhittat ord', isSwedishWord('morotsnäsa') === false);
 
 // 3. Whole pipeline, as a player would hit it.
 const verdict = await judgeClue({ clue: 'kaninmat', target: TARGET, forbidden: FORBIDDEN });

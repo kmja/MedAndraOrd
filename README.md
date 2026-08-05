@@ -24,12 +24,15 @@ Det är spelets integritetsgaranti, och UI:t säger det rakt ut: en rätt gissni
 Kärnprincip: **prompta för omdöme, koda för begränsningar.** Varje regel som kan
 kontrolleras deterministiskt kontrolleras i kod, inte av en modell.
 
-Två AI-roller (båda bakom serverproxyn — API-nyckeln lämnar aldrig servern):
+En AI-roll (bakom serverproxyn — API-nyckeln lämnar aldrig servern):
 
 | Roll | Ser | Uppgift |
 |---|---|---|
 | **Gissaren** (`guardedGuesser`) | Endast ledtråden + antal bokstäver | Bedömer ledtråden mot de regler som bara handlar om ledtråden, och gissar sedan ordet — i **samma anrop**. Retry-loop (max 4 rundor): fel längd fångas i kod och åter-promptas. |
-| **Verifieraren** (`verifier`) | Endast gissningen | Avgör om en *felaktig* gissning ändå är ett riktigt svenskt ord. Kan (och bör) ersättas av en ordboksuppslagning. |
+
+Verifieraren är borta: en **ordlista i kod** (`server/dictionary.js`) avgör om
+en felaktig gissning ändå är ett riktigt svenskt ord. Gratis, deterministiskt
+och mer träffsäkert än att fråga en modell.
 
 ### Ett anrop per gissning
 
@@ -46,9 +49,12 @@ någonsin hamnar i modellens kontext. Blindheten är exakt lika intakt — promp
 innehåller ledtråden och antalet bokstäver, inget annat. Det finns ett test som
 misslyckas om målordet eller ett spärrat ord läcker in i anropet.
 
-En lyckad inskickning kostar därmed **ett modellanrop**: en rätt gissning
-behöver ingen verifiering, eftersom målordet per definition är ett riktigt ord.
-En felaktig gissning kostar två (gissning + verifiering), en olaglig ledtråd ett.
+**Varje utfall kostar ett modellanrop.** En rätt gissning behöver ingen
+kontroll alls (målordet är per definition ett riktigt ord), en felaktig
+gissning avgörs av ordlistan i kod, och en olaglig ledtråd stoppas i samma
+svar. Det enda som kan kosta ett andra anrop är en gissning med fel antal
+bokstäver, som promptas om — en påhittad gissning promptas *inte* om, utan
+rapporteras direkt som miss.
 
 Priset för detta: den gamla domaren såg facit och kunde peka på en *översättning*
 direkt. Nu täcks det indirekt — en översättning till ett annat språk är inte ett
@@ -81,6 +87,29 @@ Deterministiska kontroller i kod (`server/util.js`):
 - **5 försök per dag** per spelare (anonym httpOnly-cookie).
 - Rate limiting per spelare på ledtråds-endpointen.
 - Namn på topplistan modereras i kod (sanering + blocklista).
+
+### Ordlistan
+
+`server/data/sv-words-<längd>.txt`: 529 454 svenska ord, genererade från
+**@cspell/dict-sv** med `npm run build:dictionary`.
+
+Listan används **endast på AI:ns gissning, aldrig på spelarens ledtråd**. Att
+kräva ordboksord av spelaren skulle förbjuda just den kreativitet spelet finns
+för — påhittade sammansättningar som ”kaninglass” ska vara tillåtna. Gissaren
+däremot är uttryckligen instruerad att svara med ett etablerat ord, så där är
+en ordbok exakt rätt regel.
+
+Två designval värda att känna till:
+
+- **Delad per ordlängd.** En gissning längdkontrolleras innan ordlistan
+  konsulteras, och ett dygn har exakt en målordslängd — så en instans laddar en
+  skärva, inte hela listan. Kallstart: ~35 ms i stället för ~950 ms, 6 MB i
+  stället för 72 MB.
+- **Källan är GPL-3.0-or-later.** Den mindre `dictionary-sv` (LGPL-3.0) är en
+  hunspell-stamlista, och stammar ensamma tappar vanliga grundformer som råkar
+  vara avledda: *lärare*, *källare*, *stege*, *kulle*, *pengar* saknades alla.
+  De hade rapporterats som AI-påhitt, vilket är värre än licensskillnaden. Båda
+  paketen ligger kvar i devDependencies om valet ska omprövas.
 
 ### Ordbank & rotation
 
@@ -206,9 +235,8 @@ Två saker att veta:
   explicit först efter att fältnamnet verifierats mot en riktig nyckel: en
   avvisad config gör att *alla* anrop failar, och domaren failar öppet.
 
-Den största besparingen är inte modellen utan att ta bort **verifieraren** och
-ersätta den med en ordboksuppslagning — det tar bort upp till en tredjedel av
-alla anrop och är dessutom mer träffsäkert.
+Domaren och verifieraren är redan borttagna som separata anrop (se *Ett anrop
+per gissning* och *Ordlistan*), så varje inskickning kostar ett anrop.
 
 ## Kalibreringsrisker (kända)
 

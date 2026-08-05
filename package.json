@@ -1,7 +1,7 @@
 {
   "name": "ordknapp",
   "version": "1.0.0",
-  "description": "Ordknapp — daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
+  "description": "Ordknapp \u2014 daily Swedish word game. Write a clue, a blind AI guesses the word. Golf scoring by clue length.",
   "type": "module",
   "engines": {
     "node": ">=18"
@@ -12,7 +12,8 @@
     "dev:web": "vite",
     "build": "vite build",
     "test": "node --test \"test/*.test.js\"",
-    "check:ai": "node scripts/check-ai.mjs"
+    "check:ai": "node scripts/check-ai.mjs",
+    "build:dictionary": "node --max-old-space-size=3000 scripts/build-dictionary.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
@@ -21,5 +22,10 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^6.4.3"
+  },
+  "devDependencies": {
+    "@cspell/dict-sv": "^2.3.2",
+    "cspell-trie-lib": "^10.0.1",
+    "dictionary-sv": "^4.0.0"
   }
 }

@@ -1,8 +1,8 @@
 import { GoogleGenAI } from '@google/genai';
 
-// The three AI roles. Everything Swedish lives in these prompts (plus the word
-// bank) — shipping another language means translating the three prompts and
-// supplying a word list; nothing structural changes.
+// The single AI role. Everything Swedish lives in this prompt, the word bank
+// and the dictionary — shipping another language means translating the prompt
+// and supplying a word list; nothing structural changes.
 //
 // The API key never leaves this server.
 //
@@ -11,12 +11,12 @@ import { GoogleGenAI } from '@google/genai';
 // capable model wins. Default: Gemini 3.1 Flash-Lite. Note that
 // gemini-2.5-flash-lite is cheaper still but retires 2026-10-16 — not worth
 // building on. Override with ORDKNAPP_MODEL to try a stronger model if the
-// referee's Swedish judgment proves too loose.
+// clue judgment proves too loose.
 //
 // Thinking level is deliberately left unset: 3.1 Flash-Lite already defaults
-// to "minimal", which is what these three classification-shaped tasks want.
+// to "minimal", which is what this classification-shaped task wants.
 // Set it explicitly only after verifying the field against a live key —
-// a rejected config would make every call fail, and the referee fails OPEN.
+// a rejected config would make every call fail, and the rule check fails OPEN.
 
 const MODEL = process.env.ORDKNAPP_MODEL || 'gemini-3.1-flash-lite';
 const MAX_TOKENS = 300;
@@ -46,7 +46,7 @@ export function textOf(response) {
   return null;
 }
 
-/** Parse the referee's JSON verdict. Exported for tests. Null = unparseable. */
+/** Parse the JSON legality verdict. Exported for tests. Null = unparseable. */
 export function parseRuling(text) {
   if (!text) return null;
   const match = String(text).match(/\{[\s\S]*\}/);
@@ -151,37 +151,10 @@ eller
   }
 }
 
+// Only one correction survives: wrong length. A non-word guess is settled by
+// the dictionary in code and never re-prompted, so it costs no extra request.
 function guessCorrection(fb, letterCount) {
-  return fb.problem === 'length'
-    ? `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`
-    : `"${fb.guess}" är inte ett etablerat svenskt ord i grundform. Gissa ett riktigt svenskt ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
-}
-
-/**
- * VERIFIER — second opinion on whether a right-length guess is a real,
- * established Swedish word (instructions alone fail; the guesser has
- * confabulated words like "morotsnäsa"). Returns true/false, or null on
- * failure (callers fail open).
- *
- * This is the role to delete first: a server-side dictionary lookup is
- * strictly better and removes up to a third of all model calls.
- */
-export async function verifier(word) {
-  try {
-    const response = await generate({
-      system:
-        'Du avgör om ett ord är ett riktigt, etablerat svenskt ord i grundform. Svara ENDAST "JA" eller "NEJ".',
-      contents: [userTurn(`Är "${word}" ett riktigt, etablerat svenskt ord i grundform?`)],
-      maxOutputTokens: 10,
-    });
-    const text = (textOf(response) ?? '').trim().toUpperCase();
-    if (text.startsWith('JA')) return true;
-    if (text.startsWith('NEJ')) return false;
-    return null;
-  } catch (err) {
-    console.error('verifier failed:', err.message);
-    return null; // fail open
-  }
+  return `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
 }
 
 export const MODEL_ID = MODEL;
