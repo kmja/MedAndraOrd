@@ -11,10 +11,14 @@
 // whatever had already been written under the old ones. This carries that
 // across — once, for a named day and the word it was actually played with.
 //
-// Needs the KV credentials in .env:
-//   KV_REST_API_URL=...
-//   KV_REST_API_TOKEN=...
-// Both are in the Vercel dashboard under Storage → your KV store → .env.local.
+// Needs the database's REST credentials. Either naming works:
+//   KV_REST_API_URL / KV_REST_API_TOKEN            (Vercel's names)
+//   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN  (Upstash's own)
+//
+// Vercel marks integration credentials "Sensitive", which means it will store
+// them but never show them again — so the dashboard is a dead end for reading
+// them back. Upstash, which issued them, will: Vercel → Storage → your database
+// → Open in Upstash → REST API.
 
 import { WORDS } from '../server/words.js';
 import { ensureEnv } from './env.mjs';
@@ -33,13 +37,15 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '') || !Number.isInteger(index)) {
 
 const ok = await ensureEnv(
   [
-    { name: 'KV_REST_API_URL', label: 'KV_REST_API_URL' },
-    { name: 'KV_REST_API_TOKEN', label: 'KV_REST_API_TOKEN' },
+    { name: 'KV_REST_API_URL', label: 'REST-URL', alt: ['UPSTASH_REDIS_REST_URL'] },
+    { name: 'KV_REST_API_TOKEN', label: 'REST-token', alt: ['UPSTASH_REDIS_REST_TOKEN'] },
   ],
   {
-    intro: 'Behöver databasens uppgifter.\n'
-      + 'Hämta dem i Vercel: ditt projekt → Storage → din KV-databas → fliken .env.local.\n'
-      + 'Klistra in raderna en i taget (det går bra att klistra in hela raden, KV_REST_API_URL=... och allt).',
+    intro: 'Behöver databasens REST-uppgifter.\n\n'
+      + 'Kan Vercel inte visa dem (de är märkta "Sensitive") så finns de i källan:\n'
+      + '  Vercel → Storage → din databas → Open in Upstash → fliken REST API.\n'
+      + 'Där heter de UPSTASH_REDIS_REST_URL och UPSTASH_REDIS_REST_TOKEN — samma sak.\n\n'
+      + 'Klistra in hela raden om du vill; prefix och citattecken städas bort.',
   },
 );
 

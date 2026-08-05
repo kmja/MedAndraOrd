@@ -23,13 +23,18 @@ function append(file, lines) {
 /**
  * Make sure every named variable is set, asking for the missing ones.
  *
- * `vars` is [{ name, label }]. Returns true once everything is present, false
- * if the user cancelled or there was no terminal to ask on — callers print
- * their own guidance and exit.
+ * `vars` is [{ name, label, alt }]. `alt` lists other names that mean the same
+ * thing — the same credential goes by different names depending on where it was
+ * copied from, and demanding one spelling when the other is already set would
+ * be asking for something the caller already has.
+ *
+ * Returns true once everything is present, false if the user cancelled or there
+ * was no terminal to ask on — callers print their own guidance and exit.
  */
 export async function ensureEnv(vars, { intro = '', file = '.env' } = {}) {
   loadEnv(file);
-  const missing = vars.filter((v) => !process.env[v.name]);
+  const have = (v) => [v.name, ...(v.alt ?? [])].some((n) => process.env[n]);
+  const missing = vars.filter((v) => !have(v));
   if (!missing.length) return true;
   if (!process.stdin.isTTY) return false;
 
