@@ -1,12 +1,18 @@
 # Ledtråden
 
-Ett dagligt AI-ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
-förbjudna ord, och skriver en ledtråd (max 20 tecken) för att få en **blind AI**
-att gissa ordet. Poängen är antalet tecken i den kortaste lyckade ledtråden —
-golfregler, lägre är bättre — med en topplista per ord.
+Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
+förbjudna ord, och viskar en ledtråd (max 20 tecken) till **Mullvaden** — som
+bor i mörkret och aldrig sett ordet — för att få hen att gissa rätt. Poängen är
+antalet tecken i den kortaste lyckade viskningen — golfregler, lägre är bättre —
+med en grävlista (topplista) per ord.
 
-**AI:n ser aldrig ordet.** Gissaren får bara ledtråden och antalet bokstäver.
-Det är spelets integritetsgaranti.
+**Mullvaden har aldrig sett ordet.** Gissaren får bara ledtråden och antalet
+bokstäver. Det är spelets integritetsgaranti, och blindheten är hela temat:
+Mullvaden gissar, **Ugglan** dömer viskningarna mot reglerna.
+
+> Temat är ren presentation: Mullvaden = gissaren, Ugglan = domaren. UI:t säger
+> ärligt i finstilten att Mullvaden spelas av en AI — en rätt gissning är bara
+> imponerande om spelarna litar på att gissaren är blind.
 
 ## Arkitektur
 
