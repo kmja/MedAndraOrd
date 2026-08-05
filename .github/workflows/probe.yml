@@ -1,0 +1,99 @@
+# Runs the word probe from the GitHub website — no terminal, no local checkout.
+#
+# Actions -> "Testa ord (probe)" -> Run workflow. Fill in the words, press the
+# green button, open the run and read the log.
+#
+# Needs one repository secret, GEMINI_API_KEY (Settings -> Secrets and
+# variables -> Actions). The dry run works without it, so the size of a sweep
+# can always be checked for free.
+
+name: Testa ord (probe)
+
+on:
+  workflow_dispatch:
+    inputs:
+      words:
+        description: 'Ord ur banken, mellanslag emellan (t.ex. "stövel vulkan morot")'
+        required: false
+        default: ''
+      new_word:
+        description: 'Nytt ord som inte finns i banken — "ord:spärr1,spärr2". Lämna spärrlistan tom för att se vad som vinner.'
+        required: false
+        default: ''
+      bank:
+        description: 'Antal slumpade ord ur banken (0 = inga)'
+        required: false
+        default: '0'
+      clues:
+        description: 'Antal kandidatledtrådar per ord'
+        required: false
+        default: '12'
+      dry:
+        description: 'Torrkörning — visa bara hur många anrop det blir, ring ingen AI'
+        type: boolean
+        required: false
+        default: true
+
+# One probe at a time: concurrent runs would spend the API quota racing
+# themselves, and the results are read one at a time anyway.
+concurrency:
+  group: probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Kontrollera nyckeln
+        if: ${{ !inputs.dry }}
+        env:
+          KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::GEMINI_API_KEY saknas. Lägg till den under Settings -> Secrets and variables -> Actions, eller kryssa i 'dry' för en torrkörning."
+            exit 1
+          fi
+
+      - name: Kör probe
+        # Inputs go through the environment rather than into the command line:
+        # a value spliced straight into `run:` would be interpreted by the
+        # shell. Expanded unquoted here so several words split into several
+        # arguments, which is all the splitting that should happen.
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WORDS: ${{ inputs.words }}
+          NEW_WORD: ${{ inputs.new_word }}
+          BANK: ${{ inputs.bank }}
+          CLUES: ${{ inputs.clues }}
+          DRY: ${{ inputs.dry }}
+        # Steps run under `bash -e`, so every line must succeed. A bare
+        # `[ x = y ] && ...` fails the step whenever the test is false — hence
+        # full if-blocks rather than the shorter form.
+        run: |
+          args=()
+          if [ "$DRY" = "true" ]; then args+=(--dry); fi
+          if [ -n "$CLUES" ]; then args+=(--clues "$CLUES"); fi
+          if [ -n "$NEW_WORD" ]; then args+=(--new "$NEW_WORD"); fi
+          if [ -n "$BANK" ] && [ "$BANK" != "0" ]; then args+=(--bank "$BANK"); fi
+          if [ "$DRY" != "true" ]; then args+=(--json probe-resultat.json); fi
+          echo "Kör: npm run probe -- ${args[*]} $WORDS"
+          echo
+          npm run probe -- "${args[@]}" $WORDS
+
+      - name: Spara resultatet
+        if: ${{ !cancelled() && !inputs.dry }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-resultat
+          path: probe-resultat.json
+          if-no-files-found: ignore
