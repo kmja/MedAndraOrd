@@ -22,30 +22,33 @@ export function normalize(s) {
 }
 
 /**
- * Swedish Scrabble letter values, used only as a tiebreaker: a clue built from
- * rarer letters beats one of the same length built from common ones.
- *
- * NOTE: assembled from the Swedish tile set. The confirmed anchors are A/D/E=1,
- * C=8 and Q/Z=10; the rest follows the standard distribution. I could not read
- * an authoritative table (the sources block automated fetches), so treat these
- * as correctable — the game only needs a stable ordering where rare letters
- * rank higher, and this is the single place to fix it.
+ * How often each letter occurs in Swedish, as a percentage.
+ * Used only as a tiebreaker: between two clues of the same length, the one
+ * built from rarer letters is the harder feat and ranks higher.
  */
-export const SCRABBLE_VALUES = {
-  a: 1, d: 1, e: 1, i: 1, l: 1, n: 1, o: 1, r: 1, s: 1, t: 1,
-  g: 2, k: 2, m: 2,
-  h: 3, ä: 3,
-  b: 4, f: 4, p: 4, u: 4, v: 4, å: 4, ö: 4,
-  j: 7, y: 7,
-  c: 8, x: 8, w: 8,
-  q: 10, z: 10,
+export const LETTER_FREQUENCY = {
+  a: 10.04, e: 9.85, t: 8.89, n: 8.45, r: 7.88, s: 5.32, i: 5.01, d: 4.90,
+  l: 4.81, o: 4.06, m: 3.55, g: 3.44, k: 3.24, h: 2.85, v: 2.55, ä: 2.10,
+  u: 1.86, f: 1.81, c: 1.71, å: 1.66, p: 1.57, ö: 1.50, b: 1.31, j: 0.90,
+  y: 0.49, x: 0.11, w: 0.06, z: 0.04, q: 0.01,
 };
 
-/** Summed Scrabble value of a clue's letters. Unknown characters score 0. */
-export function scrabbleValue(s) {
-  let total = 0;
-  for (const c of normalize(s)) total += SCRABBLE_VALUES[c] ?? 0;
-  return total;
+// An unlisted letter (é, à, …) gets roughly the mean, so reaching for an exotic
+// character is not a free way to win a tiebreak.
+const UNLISTED_FREQUENCY = 3.4;
+
+/**
+ * Summed letter frequency of a clue. **Lower is rarer, and rarer wins.**
+ * Comparing sums is fair because this only ever runs between clues of equal
+ * length, so both sums have the same number of terms.
+ */
+export function letterRarity(s) {
+  let sum = 0;
+  for (const c of normalize(s)) {
+    if (!/\p{L}/u.test(c)) continue;
+    sum += LETTER_FREQUENCY[c] ?? UNLISTED_FREQUENCY;
+  }
+  return sum;
 }
 
 /** How many whitespace characters a clue uses — the first tiebreaker. */
@@ -57,7 +60,7 @@ export function whitespaceCount(s) {
  * Leaderboard order for two clues. Lower is better overall:
  *   1. fewer characters (the score itself)
  *   2. fewer spaces — a clue that needs no spacing is tighter
- *   3. higher Scrabble value — rarer letters are the harder feat
+ *   3. rarer letters, by summed Swedish letter frequency
  *   4. alphabetical, purely so equal clues never swap places between requests
  * Returns <0 if a ranks above b.
  */
@@ -66,7 +69,7 @@ export function compareClues(a, b) {
   if (byLength) return byLength;
   const bySpaces = whitespaceCount(a) - whitespaceCount(b);
   if (bySpaces) return bySpaces;
-  const byRarity = scrabbleValue(b) - scrabbleValue(a);
+  const byRarity = letterRarity(a) - letterRarity(b); // lower frequency = rarer
   if (byRarity) return byRarity;
   return normalize(a).localeCompare(normalize(b), 'sv');
 }

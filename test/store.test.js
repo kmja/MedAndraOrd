@@ -181,7 +181,7 @@ test('KvStore.standing ranks on the same tiebreak chain as the board', async () 
     if (c[0] === 'HMGET') return ['xkvj', 'ades'];          // rarer letters first
     return null;
   });
-  // Same length, but the other clue wins on Scrabble value.
+  // Same length, but the other clue wins on letter rarity.
   assert.deepEqual(await store.standing('d', 'me'), { rank: 2, total: 2 });
 });
 
@@ -254,7 +254,7 @@ test('KvStore only writes the clue when the score actually improved', async () =
 
 test('same length: fewer spaces wins', async () => {
   const s = new MemoryStore();
-  // Same characters, same Scrabble value — only the spacing differs.
+  // Same characters, same rarity — only the spacing differs.
   await s.recordBest('d', 'a', 8, 'kanin mat');
   await s.recordBest('d', 'b', 8, 'kaninmat');
   const board = await s.leaderboard('d', 'x', true);
@@ -264,7 +264,7 @@ test('same length: fewer spaces wins', async () => {
 
 test('same length and spacing: rarer letters win', async () => {
   const s = new MemoryStore();
-  await s.recordBest('d', 'a', 4, 'ades');  // all 1-point letters
+  await s.recordBest('d', 'a', 4, 'ades');  // the four commonest-ish letters
   await s.recordBest('d', 'b', 4, 'xkvj');  // rare letters
   const board = await s.leaderboard('d', 'x', true);
   assert.equal(board[0].clue, 'xkvj');

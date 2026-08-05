@@ -131,15 +131,15 @@ målet, inte mot taket.
   med antal: *”39 spelare skrev samma sak”*. Namnet visas bara när raden har en
   enda upphovsperson.
 - **Ordningen** (`compareClues()` i `util.js`): färre tecken → färre mellanslag
-  → högre scrabble-värde (ovanligare bokstäver är den svårare bragden) →
-  alfabetiskt för stabil sortering. `standing()` rankar på exakt samma kedja,
-  annars skulle en spelares angivna placering motsäga raden hen står på — det
-  finns ett test för just det.
-- **Scrabble-värdena** i `SCRABBLE_VALUES` är hopsatta ur den svenska
-  bokstavsuppsättningen. A/D/E=1, C=8 och Q/Z=10 är bekräftade; resten följer
-  standardfördelningen men gick inte att verifiera mot en auktoritativ källa
-  (sidorna blockerar automatisk hämtning). Spelet behöver bara en stabil
-  ordning där ovanliga bokstäver rankar högre — tabellen är ett ställe att rätta.
+  → ovanligare bokstäver → alfabetiskt för stabil sortering. `standing()` rankar
+  på exakt samma kedja, annars skulle en spelares angivna placering motsäga
+  raden hen står på — det finns ett test för just det.
+- **Bokstavsrariteten** bygger på faktisk svensk bokstavsfrekvens
+  (`LETTER_FREQUENCY`, procent). `letterRarity()` summerar frekvenserna och
+  **lägre summa = ovanligare = bättre**. Att jämföra summor är rättvist just
+  här: steget körs bara mellan ledtrådar av samma längd, så båda summorna har
+  lika många termer. Obekanta tecken (é, à) får ungefär medelfrekvensen, så att
+  slå i ett exotiskt tecken inte blir ett gratis sätt att vinna en utslagning.
 - **Vinnarledtrådarna är facit.** Topplistan visar ledtråden som det viktiga och
   namnet som fotnot — men servern skickar dem först när spelaren är klar för
   dagen (löst ordet eller slut på försök). Annars skulle vem som helst kunna

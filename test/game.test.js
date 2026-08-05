@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
   sanitizeName, dayNumber, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH,
+  letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
 import {
@@ -89,6 +90,47 @@ test('sanitizeName strips junk and blocks crude names', () => {
   assert.equal(sanitizeName('<script>x</script>'), 'scriptxscript');
   assert.equal(sanitizeName('jävlaKalle'), null);
   assert.equal(sanitizeName('💩💩'), null);
+});
+
+// ---------------------------------------------------------------------------
+// tiebreakers
+// ---------------------------------------------------------------------------
+
+test('letterRarity sums Swedish letter frequencies — lower is rarer', () => {
+  assert.equal(letterRarity('a'), LETTER_FREQUENCY.a);
+  assert.ok(letterRarity('qzx') < letterRarity('ate'), 'rare letters must total less');
+  assert.equal(letterRarity('AE'), letterRarity('ae'), 'case must not matter');
+  assert.equal(letterRarity('a e'), letterRarity('ae'), 'spaces are not letters');
+  assert.equal(letterRarity(''), 0);
+});
+
+test('an unlisted letter is not a free tiebreak win', () => {
+  // Reaching for é must not beat q, or the rule becomes "type something odd".
+  assert.ok(letterRarity('é') > letterRarity('q'));
+});
+
+test('whitespaceCount counts every kind of space', () => {
+  assert.equal(whitespaceCount('kanin mat'), 1);
+  assert.equal(whitespaceCount('a\tb\nc'), 2);
+  assert.equal(whitespaceCount('kaninmat'), 0);
+});
+
+test('compareClues applies the tiebreakers in order', () => {
+  // 1. length beats everything
+  assert.ok(compareClues('qzx', 'aaaa') < 0);
+  // 2. then fewer spaces
+  assert.ok(compareClues('abcd', 'ab cd') < 0);
+  // 3. then rarer letters
+  assert.ok(compareClues('xkvj', 'ades') < 0);
+  // 4. identical clues tie
+  assert.equal(compareClues('kaninmat', 'KANINMAT'), 0);
+});
+
+test('compareClues is a consistent ordering', () => {
+  const clues = ['ades', 'xkvj', 'ab cd', 'abcd', 'qzwx', 'a', 'zz'];
+  const once = clues.slice().sort(compareClues);
+  const twice = clues.slice().reverse().sort(compareClues);
+  assert.deepEqual(once, twice, 'sorting must not depend on input order');
 });
 
 // ---------------------------------------------------------------------------
