@@ -273,9 +273,7 @@ Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, h
  * the player cannot already see, since the word is printed on their screen.
  */
 function classLine(wordClass) {
-  return wordClass
-    ? `Ordet är ett ${wordClass}. Gissa ett ord av den ordklassen.`
-    : 'Ordet är ett substantiv.';
+  return `Ordet är ett ${wordClass || 'substantiv'}. Gissa ett ord av den ordklassen.`;
 }
 
 const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.`;

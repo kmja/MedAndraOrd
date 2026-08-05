@@ -116,7 +116,7 @@ export async function stateHandler(req, res) {
     word,
     forbidden,
     letterCount,
-    wordClass: today.class ?? null,
+    wordClass: today.class,
     maxClueLength: clueLimitFor(today),
     maxAttempts: MAX_ATTEMPTS,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
@@ -140,7 +140,7 @@ export async function randomHandler(req, res) {
     word: entry.word,
     forbidden: entry.forbidden,
     letterCount: entry.letterCount,
-    wordClass: entry.class ?? null,
+    wordClass: entry.class,
     maxClueLength: clueLimitFor(entry),
   });
 }

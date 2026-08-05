@@ -515,12 +515,24 @@ test('the word class passed to the guesser is a class, never the word', async ()
   await judgeClue({ clue: 'x', target: 'springa', forbidden: [], wordClass: 'verb', ai });
   assert.equal(seen.wordClass, 'verb');
 
+  // Only these three ever reach the model or the screen. The bank writes down
+  // the unusual two; wordByIndex fills in the third.
+  const ALLOWED = new Set(['substantiv', 'verb', 'adjektiv']);
   for (const { word, class: cls } of WORDS) {
-    assert.ok(
-      cls === undefined || cls === 'verb' || cls === 'adjektiv',
-      `${word} has an unexpected class: ${cls}`,
-    );
+    assert.ok(cls === undefined || ALLOWED.has(cls), `${word} has an unexpected class: ${cls}`);
   }
+  for (let i = 0; i < WORDS.length; i++) {
+    const entry = wordByIndex(i);
+    assert.ok(ALLOWED.has(entry.class), `${entry.word} resolved to a bad class: ${entry.class}`);
+  }
+});
+
+test('an unlabelled bank entry resolves to substantiv', () => {
+  // Defaulted once, in wordByIndex, so the player, the prompt and the tests
+  // cannot disagree about what an unlabelled entry is.
+  const noun = wordByIndex(WORDS.findIndex((w) => !w.class));
+  assert.equal(noun.class, 'substantiv');
+  assert.equal(wordByIndex(WORDS.findIndex((w) => w.class === 'verb')).class, 'verb');
 });
 
 test('guesser loop: wrong length re-prompted, then accepted', async () => {

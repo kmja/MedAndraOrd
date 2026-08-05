@@ -16,12 +16,15 @@ import { ROTATION, ROTATION_EPOCH } from './rotation.js';
 // across it (see wordForDate) precisely so consecutive days don't come from the
 // same batch.
 //
-// Most entries are nouns and carry no `class`. Verbs and adjectives say so, and
-// that word class is passed to the guesser alongside the letter count. Without
-// it, a mostly-noun bank teaches the model to answer with nouns, and every verb
-// and adjective would be harder for a reason that has nothing to do with the
-// player's clue. The player can see the word class on screen, so telling the
-// guesser evens the two up rather than giving anything away.
+// Most entries are nouns and carry no `class` in the table below; wordByIndex
+// fills in 'substantiv'. Verbs and adjectives say so explicitly. Either way the
+// class is shown to the player and passed to the guesser alongside the letter
+// count.
+//
+// Telling the guesser matters: without it, a mostly-noun bank teaches the model
+// to answer with nouns, and every verb and adjective would be harder for a
+// reason that has nothing to do with the player's clue. It gives nothing away
+// either, since the player can see the word class on their own screen.
 export const WORDS = [
   { word: 'morot', forbidden: ['grönsak', 'orange', 'kanin', 'rot', 'odla'] },
   { word: 'sommar', forbidden: ['årstid', 'sol', 'varm', 'semester', 'vinter'] },
@@ -489,9 +492,11 @@ export function wordByIndex(idx) {
     word: entry.word,
     forbidden: entry.forbidden,
     letterCount: letterCount(entry.word),
-    // Nouns carry no class; verbs and adjectives do. See the header comment
-    // for why the guesser is told.
-    class: entry.class,
+    // Defaulted here rather than at each use, so the player, the prompt and
+    // the tests can never disagree about what an unlabelled entry is. Only
+    // verbs and adjectives are written down in the bank; everything else is a
+    // noun, and saying so out loud costs nothing.
+    class: entry.class ?? 'substantiv',
     // Optional, and absent for every word that hasn't been probed yet —
     // clueLimitFor() falls back to the global default. Carried through here so
     // callers never have to reach back into WORDS for it.
