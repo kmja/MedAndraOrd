@@ -222,6 +222,9 @@ const CLUE_RULES = `STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. kex, jobb, tv) är tillåtna.
 2. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller uttal i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
 3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "gräv" för att leda till grävskopa). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
+4. Är en uppräkning i stället för en formulering: lösryckta ord som var för sig associerar till svaret men inte hänger ihop till något en människa skulle kunna säga ("blöt plask barn", "gul rund söt"). En ledtråd ska gå att läsa högt som svenska — ett ord, en sammansättning, en fras, en halv mening. Testet: skulle någon kunna säga det här och bli förstådd?
+
+Regel 4 handlar inte om längd eller antal ord. "trögt skodon" är två ord och alldeles utmärkt; "en glimt av frost" är fyra och likaså. Det är sammanhanget som räknas. Ett ensamt ord eller en ensam sammansättning är alltid en giltig formulering och ska aldrig avvisas enligt regel 4.
 
 Viktigt: sammansättningar som *beskriver* saken är fortfarande TILLÅTNA. "tandpinne" som ledtråd till tandborste beskriver vad saken är — det är bra. "blomvatten" som ledtråd till vas beskriver vad den används till — också bra. Det är bara ordled utan egen beskrivande kraft som stoppas.
 

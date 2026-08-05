@@ -321,6 +321,8 @@ TESTET du måste ställa på varje förslag:
 Av ALLA svenska ord på ${n} bokstäver — pekar min ledtråd ut just det här ordet, eller passar den lika bra på tjugo andra?
 Ett ensamt allmänt ord klarar aldrig det testet. "gå", "väder", "skydd", "ben" passar på hundratals ord och gissas därför fel varje gång. Sådana förslag är bortkastade.
 
+FORMEN: ledtråden måste gå att läsa som svenska — ett ord, en sammansättning, en fras, en halv mening. En uppräkning av lösryckta associationer ("blöt plask barn") är otillåten, hur väl den än pekar. Det är sammanhanget som räknas, inte antalet ord: "trögt skodon" är utmärkt, "en glimt av frost" också.
+
 VAD SOM FAKTISKT FUNGERAR:
 - påhittade sammansättningar som beskriver saken ("kaninmat", "blomvatten")
 - ett konkret sammanhang där saken är den självklara: platsen, situationen, vem som använder den

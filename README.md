@@ -358,6 +358,16 @@ svårt, och ett olösligt ord är en sämre dag än ett lätt.
    Eiffel)? Då är det billigt löst och kommer alltid att vara det. Antingen
    spärra exemplet uttryckligen, eller acceptera att ordet är ett lätt ord.
 
+**Formen på ledtråden.** Golfpoäng plus en gissare som associerar gör en hög
+lösryckta nyckelord till den starkaste taktiken — och den minst intressanta.
+"blöt plask barn" pekar effektivt på stövel, men det är inte en ledtråd, det är
+en sökning. Regel 4 kräver därför att ledtråden går att läsa som svenska: ett
+ord, en sammansättning, en fras, en halv mening. Det är sammanhanget som räknas,
+inte antalet ord — "trögt skodon" är två ord och alldeles utmärkt.
+
+Det är den regeln, inte ordlängden, som gör "doja i dugg" till ett bättre drag
+än en uppräkning.
+
 **Vad som gör ett ord bra**: många olika sätt att beskriva det (så kreativitet
 lönar sig), inget enskilt kort ord som pekar rakt på det, och en konkret
 betydelse som en blind modell kan träffa på rätt antal bokstäver.

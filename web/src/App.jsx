@@ -326,8 +326,9 @@ function IntroDialog({ dialogRef, onClose }) {
         </div>
 
         <p className="intro-rules">
-          Du får inte använda ordet självt, dess böjningar eller de spärrade orden.
-          Inga rim- eller stavningstrick. Otillåtna ledtrådar kostar inget försök.
+          Ledtråden ska gå att läsa som svenska — inte en uppräkning av lösa ord.
+          Du får inte använda ordet självt, dess böjningar eller de spärrade orden,
+          och inga rim- eller stavningstrick. Otillåtna ledtrådar kostar inget försök.
         </p>
 
         <button type="button" onClick={onClose}>Sätt igång</button>
@@ -800,6 +801,11 @@ export default function App() {
             </li>
             <li>Kortast vinner. Sikta under dagens snitt, och gå på rekordet om du kan.</li>
             <li>Svenska ord. Inga bokstaverings- eller rimtrick.</li>
+            <li>
+              Ledtråden ska gå att läsa som svenska — ett ord, en sammansättning
+              eller en fras. En uppräkning av lösa associationer (”blöt plask barn”)
+              räknas inte. Antalet ord spelar ingen roll, bara att det hänger ihop.
+            </li>
             <li>
               Beskriv ordet — peka inte bara ut det. Ett ordled som ska fyllas i
               till en sammansättning (”skit…”) räknas inte. Sammansättningar som

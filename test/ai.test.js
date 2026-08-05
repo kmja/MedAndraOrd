@@ -170,6 +170,20 @@ test('the guesser prompt states the letter count it was given', () => {
   assert.match(guesserSystemPrompt(3), /exakt 3 bokstäver/);
 });
 
+test('the guesser prompt requires a clue to read as Swedish', () => {
+  // Golf scoring plus a model that guesses by association makes a pile of
+  // loose keywords the strongest tactic — and the least interesting one. The
+  // rule that a clue must hold together as a phrase is what makes a crafted
+  // clue beat "blöt plask barn", so it is load-bearing.
+  for (const prompt of [guesserSystemPrompt(6), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /uppräkning/);
+    assert.match(prompt, /läsa högt som svenska/);
+    // And it must say what it is NOT, or it becomes a ban on short clues.
+    assert.match(prompt, /handlar inte om längd eller antal ord/);
+    assert.match(prompt, /[Ee]nsamt ord.*aldrig avvisas/);
+  }
+});
+
 test('the guesser prompt tells the model to expect oblique clues', () => {
   // Golf scoring pushes players toward cryptic-crossword phrasing rather than
   // definitions. A guesser reading those literally rejects or misses good
