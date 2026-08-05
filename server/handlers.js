@@ -11,6 +11,21 @@ import { normalize, todayInStockholm, clueLimitFor } from './util.js';
 
 const COOKIE = 'ordknapp_pid';
 
+/**
+ * What a day's stored data belongs to.
+ *
+ * The date alone is not enough. Which word a date maps to depends on the size
+ * of the bank — `(dayNumber * STRIDE) % WORDS.length` — so adding words moves
+ * every date to a different word. When that happened mid-day, the day's
+ * leaderboard still held clues for the old word while players were being shown
+ * the new one, and the clue cache would hand a verdict judged against one word
+ * to a clue written for another.
+ *
+ * Scoping by (date, word) makes a bank change do the harmless thing instead:
+ * the new word simply starts with a clean board.
+ */
+const puzzleKey = (date, index) => `${date}:${index}`;
+
 // Practice mode ("Slumpa ord") is a testing aid: a random word run through the
 // same pipeline but recorded nowhere. Set ORDKNAPP_PRACTICE=0 to remove it.
 const PRACTICE_ENABLED = process.env.ORDKNAPP_PRACTICE !== '0';
@@ -84,16 +99,17 @@ export async function stateHandler(req, res) {
   const today = wordForDate(date);
   const { word, forbidden, letterCount } = today;
 
+  const puzzle = puzzleKey(date, today.index);
   const [attempts, best, standing, dayStats] = await Promise.all([
-    store.getAttempts(date, pid),
-    store.getBest(date, pid),
-    store.standing(date, pid),
-    store.dayStats(date),
+    store.getAttempts(puzzle, pid),
+    store.getBest(puzzle, pid),
+    store.standing(puzzle, pid),
+    store.dayStats(puzzle),
   ]);
   // The winning clues are the answer key. Only players who are done for the
   // day — solved it, or out of attempts — get to see them.
   const reveal = best != null || attempts >= MAX_ATTEMPTS;
-  const leaderboard = await store.leaderboard(date, pid, reveal);
+  const leaderboard = await store.leaderboard(puzzle, pid, reveal);
 
   send(res, 200, {
     date,
@@ -179,7 +195,8 @@ export async function clueHandler(req, res) {
   }
 
   const { index, word, forbidden } = today;
-  const attempts = await store.getAttempts(date, pid);
+  const puzzle = puzzleKey(date, index);
+  const attempts = await store.getAttempts(puzzle, pid);
   if (attempts >= MAX_ATTEMPTS) {
     return send(res, 403, { error: 'Du har inga försök kvar idag. Nytt ord imorgon.' });
   }
@@ -188,7 +205,7 @@ export async function clueHandler(req, res) {
 
   // With a leaderboard, identical clues must resolve identically: the first
   // submission fixes the ruling for everyone that day.
-  let verdict = await store.getCachedVerdict(date, index, normClue);
+  let verdict = await store.getCachedVerdict(puzzle, normClue);
   let cached = true;
   if (!verdict) {
     cached = false;
@@ -204,25 +221,25 @@ export async function clueHandler(req, res) {
       return send(res, 500, { error: 'Något gick fel. Inget försök förbrukades.' });
     }
     if (isCacheableVerdict(verdict)) {
-      await store.cacheVerdict(date, index, normClue, verdict);
+      await store.cacheVerdict(puzzle, normClue, verdict);
     }
   }
 
   // Only outcomes the player is responsible for cost an attempt.
   let newAttempts = attempts;
-  let best = await store.getBest(date, pid);
+  let best = await store.getBest(puzzle, pid);
   if (costsAttempt(verdict)) {
-    newAttempts = await store.incrAttempts(date, pid);
+    newAttempts = await store.incrAttempts(puzzle, pid);
     if (verdict.type === 'correct') {
-      best = await store.recordBest(date, pid, verdict.score, clue);
+      best = await store.recordBest(puzzle, pid, verdict.score, clue);
     }
   }
 
   const reveal = best != null || newAttempts >= MAX_ATTEMPTS;
   const [leaderboard, standing, dayStats] = await Promise.all([
-    store.leaderboard(date, pid, reveal),
-    store.standing(date, pid),
-    store.dayStats(date),
+    store.leaderboard(puzzle, pid, reveal),
+    store.standing(puzzle, pid),
+    store.dayStats(puzzle),
   ]);
 
   send(res, 200, {

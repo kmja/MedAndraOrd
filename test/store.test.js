@@ -47,11 +47,24 @@ test('rows carry no player identity at all', async () => {
   assert.deepEqual(Object.keys(row).sort(), ['clue', 'count', 'rank', 'score', 'you']);
 });
 
-test('clue verdict cache is per day', async () => {
+test('clue verdict cache is per puzzle, not per day', async () => {
+  // Per day was not enough. Growing the word bank changes which word a date
+  // maps to, so a verdict judged against one word could be handed to a clue
+  // written for another on the very same date.
   const s = new MemoryStore();
-  await s.cacheVerdict('2026-08-05', 0, 'kanin', { type: 'wrong' });
-  assert.deepEqual(await s.getCachedVerdict('2026-08-05', 0, 'kanin'), { type: 'wrong' });
-  assert.equal(await s.getCachedVerdict('2026-08-06', 0, 'kanin'), null);
+  await s.cacheVerdict('2026-08-05:158', 'kanin', { type: 'wrong' });
+  assert.deepEqual(await s.getCachedVerdict('2026-08-05:158', 'kanin'), { type: 'wrong' });
+  assert.equal(await s.getCachedVerdict('2026-08-06:158', 'kanin'), null, 'different day');
+  assert.equal(await s.getCachedVerdict('2026-08-05:370', 'kanin'), null, 'same day, different word');
+});
+
+test('scores are per puzzle, so a bank change starts a clean board', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('2026-08-05:158', 'a', 6, 'vinterplagg');
+  assert.equal(await s.getBest('2026-08-05:158', 'a'), 6);
+  // Same date, word moved: the old board must not follow the new word.
+  assert.equal(await s.getBest('2026-08-05:370', 'a'), null);
+  assert.deepEqual(await s.leaderboard('2026-08-05:370', 'a', true), []);
 });
 
 test('MemoryStore reports itself as non-durable', () => {
@@ -121,8 +134,8 @@ test('KvStore round-trips verdicts as JSON', async () => {
     if (c[0] === 'GET') return saved[c[1]] ?? null;
     return null;
   });
-  await store.cacheVerdict('d', 0, 'ledtråd', { type: 'correct', score: 8 });
-  assert.deepEqual(await store.getCachedVerdict('d', 0, 'ledtråd'), { type: 'correct', score: 8 });
+  await store.cacheVerdict('d:12', 'ledtråd', { type: 'correct', score: 8 });
+  assert.deepEqual(await store.getCachedVerdict('d:12', 'ledtråd'), { type: 'correct', score: 8 });
 });
 
 test('KvStore reports itself as durable', () => {

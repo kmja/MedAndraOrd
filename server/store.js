@@ -70,37 +70,41 @@ function groupAndRank(entries, { reveal, viewerPid }) {
 
 class MemoryStore {
   constructor() {
-    this.attempts = new Map(); // `${date}:${pid}` -> count
-    this.bests = new Map(); // `${date}` -> Map(pid -> { score, clue })
-    this.clues = new Map(); // `${date}:${clue}` -> verdict
+    // Everything is scoped by PUZZLE, not by date — see puzzleKey() in
+    // handlers.js. A date alone was wrong: growing the word bank changes which
+    // word a date maps to, and the day's scores and cached verdicts then
+    // belonged to a word nobody was playing any more.
+    this.attempts = new Map(); // `${puzzle}:${pid}` -> count
+    this.bests = new Map(); // `${puzzle}` -> Map(pid -> { score, clue })
+    this.clues = new Map(); // `${puzzle}:${clue}` -> verdict
     this.durable = false;
   }
 
-  async getCachedVerdict(date, _wordIndex, normClue) {
-    return this.clues.get(`${date}:${normClue}`) ?? null;
+  async getCachedVerdict(puzzle, normClue) {
+    return this.clues.get(`${puzzle}:${normClue}`) ?? null;
   }
 
-  async cacheVerdict(date, _wordIndex, normClue, verdict) {
-    this.clues.set(`${date}:${normClue}`, verdict);
+  async cacheVerdict(puzzle, normClue, verdict) {
+    this.clues.set(`${puzzle}:${normClue}`, verdict);
   }
 
-  async getAttempts(date, pid) {
-    return this.attempts.get(`${date}:${pid}`) ?? 0;
+  async getAttempts(puzzle, pid) {
+    return this.attempts.get(`${puzzle}:${pid}`) ?? 0;
   }
 
-  async incrAttempts(date, pid) {
-    const n = (this.attempts.get(`${date}:${pid}`) ?? 0) + 1;
-    this.attempts.set(`${date}:${pid}`, n);
+  async incrAttempts(puzzle, pid) {
+    const n = (this.attempts.get(`${puzzle}:${pid}`) ?? 0) + 1;
+    this.attempts.set(`${puzzle}:${pid}`, n);
     return n;
   }
 
-  async getBest(date, pid) {
-    return this.bests.get(date)?.get(pid)?.score ?? null;
+  async getBest(puzzle, pid) {
+    return this.bests.get(puzzle)?.get(pid)?.score ?? null;
   }
 
-  async recordBest(date, pid, score, clue) {
-    if (!this.bests.has(date)) this.bests.set(date, new Map());
-    const day = this.bests.get(date);
+  async recordBest(puzzle, pid, score, clue) {
+    if (!this.bests.has(puzzle)) this.bests.set(puzzle, new Map());
+    const day = this.bests.get(puzzle);
     const prev = day.get(pid);
     if (prev == null || score < prev.score) day.set(pid, { score, clue });
     return day.get(pid).score;
@@ -111,8 +115,8 @@ class MemoryStore {
    * hasn't finished could simply copy the best one, so the server omits them
    * rather than trusting the client to hide them.
    */
-  async leaderboard(date, viewerPid, reveal = false) {
-    const day = this.bests.get(date);
+  async leaderboard(puzzle, viewerPid, reveal = false) {
+    const day = this.bests.get(puzzle);
     if (!day) return [];
     return groupAndRank(
       [...day.entries()].map(([pid, best]) => ({ pid, score: best.score, clue: best.clue })),
@@ -126,8 +130,8 @@ class MemoryStore {
    * never invent an ordering the scores don't support.
    * Returns { rank, total } or null if they haven't solved it.
    */
-  async standing(date, pid) {
-    const day = this.bests.get(date);
+  async standing(puzzle, pid) {
+    const day = this.bests.get(puzzle);
     const mine = day?.get(pid);
     if (mine == null) return null;
     // Ranked on the same chain the board uses, so a player's stated placing
@@ -143,8 +147,8 @@ class MemoryStore {
   }
 
   /** Aggregates for the day, used to mark the average on the length meter. */
-  async dayStats(date) {
-    const day = this.bests.get(date);
+  async dayStats(puzzle) {
+    const day = this.bests.get(puzzle);
     if (!day || day.size === 0) return { solvers: 0, average: null };
     let sum = 0;
     for (const best of day.values()) sum += best.score;
@@ -232,44 +236,44 @@ class KvStore {
     try { await this._cmd('EXPIRE', key, 60 * 60 * 24 * 40); } catch { /* best effort */ }
   }
 
-  async getCachedVerdict(date, _wordIndex, normClue) {
-    const raw = await this._cmd('GET', `clue:${date}:${normClue}`);
+  async getCachedVerdict(puzzle, normClue) {
+    const raw = await this._cmd('GET', `clue:${puzzle}:${normClue}`);
     return raw ? JSON.parse(raw) : null;
   }
 
-  async cacheVerdict(date, _wordIndex, normClue, verdict) {
-    const key = `clue:${date}:${normClue}`;
+  async cacheVerdict(puzzle, normClue, verdict) {
+    const key = `clue:${puzzle}:${normClue}`;
     await this._cmd('SET', key, JSON.stringify(verdict));
     await this._expire(key);
   }
 
-  async getAttempts(date, pid) {
-    const n = await this._cmd('GET', `att:${date}:${pid}`);
+  async getAttempts(puzzle, pid) {
+    const n = await this._cmd('GET', `att:${puzzle}:${pid}`);
     return n ? Number(n) : 0;
   }
 
-  async incrAttempts(date, pid) {
-    const key = `att:${date}:${pid}`;
+  async incrAttempts(puzzle, pid) {
+    const key = `att:${puzzle}:${pid}`;
     const n = await this._cmd('INCR', key);
     if (Number(n) === 1) await this._expire(key);
     return Number(n);
   }
 
-  async getBest(date, pid) {
-    const s = await this._cmd('ZSCORE', `best:${date}`, pid);
+  async getBest(puzzle, pid) {
+    const s = await this._cmd('ZSCORE', `best:${puzzle}`, pid);
     return s == null ? null : Number(s);
   }
 
-  async recordBest(date, pid, score, clue) {
-    const key = `best:${date}`;
+  async recordBest(puzzle, pid, score, clue) {
+    const key = `best:${puzzle}`;
     // LT: only overwrite when the new score is lower. Golf — lower is better.
     await this._cmd('ZADD', key, 'LT', String(score), pid);
     await this._expire(key);
-    const now = await this.getBest(date, pid);
+    const now = await this.getBest(puzzle, pid);
     // Keep the clue in step with the score it belongs to: only write it when
     // this submission is the one that now holds the record.
     if (now === score && clue != null) {
-      const clueKey = `bestclue:${date}`;
+      const clueKey = `bestclue:${puzzle}`;
       await this._cmd('HSET', clueKey, pid, clue);
       await this._expire(clueKey);
     }
@@ -282,21 +286,21 @@ class KvStore {
    * clue — the top 20 rows can't be known from scores alone. Same O(solvers)
    * cost as dayStats; fine at this scale, and the place to add a cache first.
    */
-  async leaderboard(date, viewerPid, reveal = false) {
-    const flat = await this._cmd('ZRANGE', `best:${date}`, '0', '-1', 'WITHSCORES');
+  async leaderboard(puzzle, viewerPid, reveal = false) {
+    const flat = await this._cmd('ZRANGE', `best:${puzzle}`, '0', '-1', 'WITHSCORES');
     if (!Array.isArray(flat) || flat.length === 0) return [];
     const entries = [];
     for (let i = 0; i < flat.length; i += 2) entries.push({ pid: flat[i], score: Number(flat[i + 1]) });
 
-    const clues = await this._cmd('HMGET', `bestclue:${date}`, ...entries.map((e) => e.pid));
+    const clues = await this._cmd('HMGET', `bestclue:${puzzle}`, ...entries.map((e) => e.pid));
     entries.forEach((e, i) => { e.clue = clues?.[i] ?? null; });
 
     return groupAndRank(entries, { reveal, viewerPid });
   }
 
   /** Averages over every solver, so this reads the whole day's set. */
-  async dayStats(date) {
-    const flat = await this._cmd('ZRANGE', `best:${date}`, '0', '-1', 'WITHSCORES');
+  async dayStats(puzzle) {
+    const flat = await this._cmd('ZRANGE', `best:${puzzle}`, '0', '-1', 'WITHSCORES');
     if (!Array.isArray(flat) || flat.length === 0) return { solvers: 0, average: null };
     let sum = 0;
     let n = 0;
@@ -309,12 +313,12 @@ class KvStore {
    * counting, so this stays one round trip per figure regardless of how many
    * players there are. ZRANK would break ties arbitrarily by insertion order.
    */
-  async standing(date, pid) {
-    const mine = await this.getBest(date, pid);
+  async standing(puzzle, pid) {
+    const mine = await this.getBest(puzzle, pid);
     if (mine == null) return null;
     const [myClue, flat] = await Promise.all([
-      this._cmd('HGET', `bestclue:${date}`, pid),
-      this._cmd('ZRANGE', `best:${date}`, '0', '-1', 'WITHSCORES'),
+      this._cmd('HGET', `bestclue:${puzzle}`, pid),
+      this._cmd('ZRANGE', `best:${puzzle}`, '0', '-1', 'WITHSCORES'),
     ]);
     const entries = [];
     for (let i = 0; i < flat.length; i += 2) entries.push({ pid: flat[i], score: Number(flat[i + 1]) });
@@ -322,7 +326,7 @@ class KvStore {
       // No clue on record: fall back to the score alone.
       return { rank: entries.filter((e) => e.score < mine).length + 1, total: entries.length };
     }
-    const clues = await this._cmd('HMGET', `bestclue:${date}`, ...entries.map((e) => e.pid));
+    const clues = await this._cmd('HMGET', `bestclue:${puzzle}`, ...entries.map((e) => e.pid));
     let better = 0;
     entries.forEach((e, i) => {
       const theirs = clues?.[i];
