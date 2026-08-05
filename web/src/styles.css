@@ -31,8 +31,15 @@ body {
 
 /* ---- header ---- */
 /* The header identifies, it doesn't perform — the puzzle is the content. */
-header { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+header { margin-bottom: 16px; }
 h1 { margin: 0; font-family: var(--serif); font-size: 1.35rem; letter-spacing: 0.02em; }
+/* Tagline and the way back into the tutorial share one line: both are
+   secondary, and giving each its own row made the header taller than the
+   thing it introduces. */
+.subhead {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; margin-top: 3px;
+}
 .tagline { margin: 0; color: var(--faint); font-size: 0.82rem; }
 
 /* ---- cards ---- */
@@ -180,6 +187,14 @@ input.is-invalid {
 }
 /* A spinning square reads as motion, not as a letter to be trusted. */
 .box.is-spinning { color: var(--faint); }
+
+/* Only the square that just stopped animates. Staggering the whole row would
+   land them together; this lands them one at a time, which is the point. */
+.box.is-landing { animation: land 0.24s cubic-bezier(0.2, 0.8, 0.3, 1.3); }
+@keyframes land {
+  0%   { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
 .thinking { color: var(--muted); }
 .thinking i { font-style: normal; animation: blink 1.2s infinite; }
 .thinking i:nth-child(2) { animation-delay: 0.2s; }
@@ -189,12 +204,14 @@ input.is-invalid {
 @keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
 
 /* ---- celebration ---- */
+/* No per-square entrance here: the letters have already arrived one by one
+   during the settle. Replaying a staggered flip on commit made the row appear
+   to resolve twice, which is what buried the one-at-a-time reveal. */
 .row-correct .box {
   border-color: var(--correct);
   color: var(--correct);
   background: var(--correct-soft);
-  animation: flip-in 0.42s ease-out backwards;
-  animation-delay: calc(var(--i) * 70ms);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 @keyframes flip-in {
   0%   { transform: rotateX(-90deg) scale(0.9); opacity: 0; background: #fff; }
@@ -233,8 +250,7 @@ input.is-invalid {
 .row-wrong { animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
 .row-wrong .box {
   border-color: var(--line); color: var(--miss); background: #faf7f0;
-  animation: drop-in 0.3s ease-out backwards;
-  animation-delay: calc(var(--i) * 45ms);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 @keyframes shake {
   10%, 90% { transform: translateX(-2px); }
@@ -326,7 +342,7 @@ input.is-invalid {
 
 /* A quiet way back in, for anyone who dismissed it too fast. */
 .how-to {
-  margin-left: auto;
+  flex: none;
   background: none; border: none; padding: 0;
   color: var(--faint); font-size: 0.8rem; font-weight: 500;
   text-decoration: underline; text-underline-offset: 3px;
@@ -349,6 +365,20 @@ input.is-invalid {
   overscroll-behavior: contain;
 }
 .win-dialog[open] { animation: dialog-in 0.34s cubic-bezier(0.2, 0.8, 0.3, 1); }
+/* Grows out of the answer row it is about — see growFrom(). The offset and
+   scale are measured at open time, so this only says how to travel, not where
+   from. More specific than the plain entrance above, which it replaces. */
+.win-dialog[open].is-growing {
+  animation: grow-from 0.44s cubic-bezier(0.2, 0.8, 0.28, 1);
+  transform-origin: center;
+}
+@keyframes grow-from {
+  0% {
+    opacity: 0.25;
+    transform: translate(var(--grow-x, 0), var(--grow-y, 0)) scale(var(--grow-scale, 0.3));
+  }
+  100% { opacity: 1; transform: none; }
+}
 .win-dialog::backdrop { background: rgba(35, 32, 27, 0.42); }
 .win-dialog[open]::backdrop { animation: fade-in 0.24s ease-out; }
 @keyframes dialog-in {
@@ -412,19 +442,26 @@ input.is-invalid {
 .attempts-out { color: var(--muted); font-weight: 500; }
 .input-row { display: flex; gap: 8px; }
 
+/* The one thing on the page you are meant to do. It is sized like it. */
 input {
   flex: 1;
   min-width: 0;
   background: #fff;
-  border: 1.5px solid var(--line);
-  border-radius: 6px;
+  border: 2px solid var(--line);
+  border-radius: 8px;
   color: var(--ink);
-  padding: 11px 13px;
-  font-size: 1rem;
-  font-family: inherit;
+  padding: 16px 16px;
+  font-size: 1.2rem;
+  font-family: var(--serif);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-input::placeholder { color: var(--faint); }
-input:focus { outline: none; border-color: var(--ink); }
+input::placeholder { color: var(--faint); font-family: inherit; }
+input:focus {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(35, 32, 27, 0.08);
+}
+.input-row button { padding: 16px 22px; font-size: 1rem; }
 
 button {
   background: var(--ink);
@@ -512,7 +549,9 @@ footer li { margin-bottom: 3px; }
   .response-correct .row-correct,
   .row-pending .box,
   input.is-invalid,
+  .box.is-landing,
   .win-dialog[open],
+  .win-dialog[open].is-growing,
   .win-dialog[open]::backdrop,
   .intro-dialog[open],
   .intro-dialog[open]::backdrop,

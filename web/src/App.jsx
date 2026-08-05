@@ -1,5 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+// The real rule checks, not a copy of them. server/util.js is pure — no node
+// imports — so the browser can run the same function the server does. That
+// matters: a second implementation here would drift, and the one place it
+// would show is a clue the client waves through and the server then rejects.
+//
+// The server still runs these; it stays authoritative. This is only so an
+// obviously illegal clue never starts the reveal animation.
+import { checkClueCode } from '../../server/util.js';
+
 async function api(path, options) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -93,13 +102,18 @@ const ALPHABET = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ'];
  * `revealed` is how many squares have stopped. null means "not spinning" —
  * a settled row from an earlier attempt.
  */
-function LetterRow({ word, tone = 'answer', length, size, spin = 0, revealed = null }) {
+function LetterRow({ word, tone = 'answer', length, size, spin = 0, revealed = null, rowRef }) {
   const target = word ? chars(word.toUpperCase()) : null;
   const n = target ? target.length : (length ?? 0);
   const spinning = (i) => revealed !== null && i >= revealed;
+  // The square that stopped on this tick. Giving only that one a landing
+  // animation is what makes the reveal read as one letter at a time rather
+  // than as a row that resolves at once.
+  const justLanded = (i) => revealed !== null && i === revealed - 1;
 
   return (
     <div
+      ref={rowRef}
       className={`row row-${tone}${size ? ` row-${size}` : ''}`}
       style={{ '--n': n }}
       aria-label={word || `${n} bokstäver`}
@@ -107,7 +121,7 @@ function LetterRow({ word, tone = 'answer', length, size, spin = 0, revealed = n
       {Array.from({ length: n }, (_, i) => (
         <span
           key={i}
-          className={spinning(i) ? 'box is-spinning' : 'box'}
+          className={`box${spinning(i) ? ' is-spinning' : ''}${justLanded(i) ? ' is-landing' : ''}`}
           style={{ '--i': i }}
           aria-hidden="true"
         >
@@ -121,7 +135,7 @@ function LetterRow({ word, tone = 'answer', length, size, spin = 0, revealed = n
 }
 
 /** The AI's answer, centre stage, with the clue that produced it as an eyebrow. */
-function ResponseCard({ entry, pending, clue, letterCount, latest, children, spin = 0, revealed = null }) {
+function ResponseCard({ entry, pending, clue, letterCount, latest, children, spin = 0, revealed = null, rowRef }) {
   const settling = revealed !== null && entry;
   const tone = pending || settling ? 'pending' : entry.type === 'correct' ? 'correct' : 'wrong';
   return (
@@ -139,6 +153,7 @@ function ResponseCard({ entry, pending, clue, letterCount, latest, children, spi
           size={latest ? 'big' : undefined}
           spin={spin}
           revealed={pending ? 0 : revealed}
+          rowRef={rowRef}
         />
         {tone === 'correct' && (
           <span className="sparkles" aria-hidden="true">
@@ -321,6 +336,50 @@ function IntroDialog({ dialogRef, onClose }) {
   );
 }
 
+/**
+ * Make the dialog appear to grow out of the letters it is about.
+ *
+ * A modal is positioned by the browser, so it cannot simply be anchored to
+ * something on the page. Instead: measure where the answer row is, measure
+ * where the dialog landed, and hand the difference to a keyframe as the
+ * starting transform. The dialog then travels from the row to its own place
+ * rather than arriving from nowhere.
+ *
+ * If the row is gone — reopened later from the solved panel — there is nothing
+ * to grow from, and the plain entrance is the honest fallback.
+ */
+function growFrom(dialog, source) {
+  dialog.classList.remove('is-growing');
+  if (!source || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  // The row is a block element and stretches to its container, so its own rect
+  // is far wider than the letters in it. Measure the squares instead, or the
+  // dialog appears to grow from something the eye never identified as the
+  // source.
+  const boxes = source.querySelectorAll('.box');
+  const first = boxes[0]?.getBoundingClientRect();
+  const last = boxes[boxes.length - 1]?.getBoundingClientRect();
+  if (!first || !last) return;
+  const from = {
+    left: first.left,
+    top: first.top,
+    width: last.right - first.left,
+    height: first.height,
+  };
+
+  const to = dialog.getBoundingClientRect();
+  if (!from.width || !to.width) return;
+
+  dialog.style.setProperty('--grow-x', `${(from.left + from.width / 2) - (to.left + to.width / 2)}px`);
+  dialog.style.setProperty('--grow-y', `${(from.top + from.height / 2) - (to.top + to.height / 2)}px`);
+  // Scaled from the row's width, but capped well below 1. A wide, short row and
+  // a tall dialog cannot both be matched by one uniform scale, and taking the
+  // width literally gave ~0.85 — a grow too small to read as a grow. The cap
+  // keeps the movement legible; the offset is what carries the "from here".
+  dialog.style.setProperty('--grow-scale', String(Math.max(0.15, Math.min(0.6, from.width / to.width))));
+  dialog.classList.add('is-growing');
+}
+
 // localStorage throws in some privacy modes, and a tutorial is not worth a
 // blank page — treat any failure as "not seen yet" and carry on.
 const INTRO_KEY = 'ordknapp_intro_seen';
@@ -379,7 +438,7 @@ export default function App() {
       }, 180);
       return () => clearTimeout(id);
     }
-    const id = setTimeout(() => setSettling((s2) => s2 && { ...s2, revealed: s2.revealed + 1 }), 130);
+    const id = setTimeout(() => setSettling((s2) => s2 && { ...s2, revealed: s2.revealed + 1 }), 200);
     return () => clearTimeout(id);
   }, [settling]);
 
@@ -396,8 +455,14 @@ export default function App() {
   useEffect(() => {
     const d = dialogRef.current;
     if (!d) return;
-    if (winOpen && !d.open) d.showModal();
-    else if (!winOpen && d.open) d.close();
+    if (winOpen && !d.open) {
+      d.showModal();
+      // After showModal, so the dialog has a box to measure against.
+      growFrom(d, document.querySelector('.response.is-latest .row'));
+    } else if (!winOpen && d.open) {
+      d.close();
+      d.classList.remove('is-growing');
+    }
   }, [winOpen]);
 
   // A refused clue buzzes the field, the way a form rejects a bad phone number.
@@ -436,6 +501,18 @@ export default function App() {
     e.preventDefault();
     const text = clue.trim();
     if (!text || tooLong || busy || outOfAttempts) return;
+
+    // Checked here as well as on the server, purely so the reveal does not
+    // start for a clue that cannot possibly reach the model. Building
+    // suspense and then throwing it away is worse than an immediate no.
+    const refused = checkClueCode(text, active.word, active.forbidden, state.maxClueLength);
+    if (refused) {
+      setNotice({ kind: 'rejected', text: refused.reason });
+      buzz();
+      inputRef.current?.focus();
+      return;
+    }
+
     setPendingClue(text);
     setNotice(null);
     setClue('');
@@ -538,10 +615,12 @@ export default function App() {
     <div className="shell">
       <header>
         <h1>Ordknapp</h1>
-        <p className="tagline">Skriv en ledtråd. AI:n gissar. Kortast vinner.</p>
-        <button type="button" className="how-to" onClick={() => setIntroOpen(true)}>
-          Hur funkar det?
-        </button>
+        <div className="subhead">
+          <p className="tagline">Skriv en ledtråd. AI:n gissar. Kortast vinner.</p>
+          <button type="button" className="how-to" onClick={() => setIntroOpen(true)}>
+            Hur funkar det?
+          </button>
+        </div>
       </header>
 
       <main className="card">
