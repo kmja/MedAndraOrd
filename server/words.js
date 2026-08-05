@@ -1,4 +1,5 @@
 import { dayNumber, letterCount } from './util.js';
+import { ROTATION, ROTATION_EPOCH } from './rotation.js';
 
 // Hand-authored word bank. Writing the forbidden lists is the Taboo craft —
 // each list blocks the five most obvious clue routes for its word.
@@ -500,16 +501,16 @@ export function wordByIndex(idx) {
 
 /**
  * Deterministic daily rotation: same date → same word for everyone.
- * The stride keeps consecutive days far apart in the bank so neighbouring days
- * don't share a theme. It must stay coprime with WORDS.length or the rotation
- * silently cycles through only a fraction of the bank — there is a test for it.
+ *
+ * The schedule is read from a committed array rather than computed from the
+ * bank size. Computing it — `(dayNumber * STRIDE) % WORDS.length` — made every
+ * date depend on how many words exist, so adding words silently rewrote the
+ * calendar, today included, while people were mid-play. See server/rotation.js.
  */
-const STRIDE = 97;
-
 export function wordForDate(dateStr) {
-  const n = dayNumber(dateStr);
-  const idx = ((n * STRIDE) % WORDS.length + WORDS.length) % WORDS.length;
-  return wordByIndex(idx);
+  const pos = dayNumber(dateStr) - ROTATION_EPOCH;
+  const n = ROTATION.length;
+  return wordByIndex(ROTATION[((pos % n) + n) % n]);
 }
 
 /**

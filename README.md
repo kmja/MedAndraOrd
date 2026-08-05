@@ -369,10 +369,21 @@ betydelse som en blind modell kan träffa på rätt antal bokstäver.
 (Europe/Stockholm) — alla spelare får samma ord samma dag, och banken räcker
 drygt ett år innan något ord återkommer.
 
-Rotationen *stegar* genom banken (`STRIDE = 97`) i stället för att gå i ordning,
-eftersom banken är författad i temablock — utan steget skulle en hel vecka bli
-"natur". Steget måste vara relativt primt med bankens storlek, annars täcker
-rotationen bara en del av banken; det finns ett test för det.
+Schemat ligger **nedskrivet** i `server/rotation.js`, inte uträknat. Tidigare
+räknades ordet fram som `(dagnummer * STRIDE) % WORDS.length` — vilket fungerar
+tills banken växer: då ändras nämnaren och *varje* datum byter ord, inklusive
+dagens, mitt under pågående spel. Det hände när banken gick från 376 till 452
+ord: dagens ord bytte från stövel till jul, och ingen av de trettio närmaste
+dagarna behöll sitt ord heller.
+
+Nu är plats `p` i `ROTATION` ordet för dag `EPOCH + p`. Ordningen är fortfarande
+en stegad permutation av banken, så två dagar i rad kommer aldrig från samma
+temablock — men den är fastlagd, inte härledd.
+
+Lägger du till ord: kör `npm run rotation` (och `-- --apply`). Den låter alla
+dagar till och med idag vara ifred och planerar bara om framtiden, så nya ord
+börjar dyka upp redan imorgon utan att någon spelad dag rubbas. Skriptet vägrar
+skriva om något som skulle flytta en spelad dag.
 
 ### Övningsläge (”Slumpa ord”)
 

@@ -8,6 +8,7 @@ import {
   letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
+import { ROTATION, ROTATION_EPOCH } from '../server/rotation.js';
 import {
   runGuesserLoop, judgeClue, costsAttempt, isCacheableVerdict, MAX_GUESS_ROUNDS,
 } from '../server/game.js';
@@ -313,8 +314,9 @@ test('daily rotation is deterministic and changes day to day', () => {
 });
 
 test('rotation visits every word before repeating any', () => {
-  // Requires the stride to be coprime with the bank size; if it isn't, the
-  // rotation silently cycles through a fraction of the bank forever.
+  // Requires ROTATION to be a permutation of the bank. If a word were missing
+  // or duplicated, the schedule would silently cycle through a fraction of the
+  // bank forever while looking fine day to day.
   const seen = new Set();
   const start = dayNumber('2026-01-01');
   for (let i = 0; i < WORDS.length; i++) {
@@ -324,6 +326,30 @@ test('rotation visits every word before repeating any', () => {
     seen.add(wordForDate(d).index);
   }
   assert.equal(seen.size, WORDS.length, 'rotation does not cover the whole bank');
+});
+
+test('the schedule is a permutation of the bank', () => {
+  assert.equal(ROTATION.length, WORDS.length, 'every word needs exactly one slot');
+  assert.equal(new Set(ROTATION).size, ROTATION.length, 'a word is scheduled twice');
+  for (const i of ROTATION) {
+    assert.ok(Number.isInteger(i) && i >= 0 && i < WORDS.length, `bad index ${i}`);
+  }
+});
+
+test('appending words cannot move a day that is already scheduled', () => {
+  // This is the whole reason the schedule is written down instead of computed.
+  // The old rule was (dayNumber * STRIDE) % WORDS.length, so growing the bank
+  // changed the modulus and rewrote the calendar — today included, mid-play.
+  const start = dayNumber('2026-08-05');
+  const before = [];
+  for (let i = 0; i < 30; i++) before.push(ROTATION[(start + i - ROTATION_EPOCH) % ROTATION.length]);
+
+  // Simulate the append: 40 more words on the end of the schedule.
+  const grown = [...ROTATION, ...Array.from({ length: 40 }, (_, i) => WORDS.length + i)];
+  const after = [];
+  for (let i = 0; i < 30; i++) after.push(grown[(start + i - ROTATION_EPOCH) % grown.length]);
+
+  assert.deepEqual(after, before, 'a scheduled day moved when the bank grew');
 });
 
 test('consecutive days are far apart in the bank (themes do not clump)', () => {

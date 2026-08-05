@@ -16,7 +16,8 @@
     "build:dictionary": "node --max-old-space-size=3000 scripts/build-dictionary.mjs",
     "review:words": "node --max-old-space-size=2000 scripts/review-words.mjs",
     "probe": "node scripts/probe-word.mjs",
-    "limits": "node scripts/apply-limits.mjs"
+    "limits": "node scripts/apply-limits.mjs",
+    "rotation": "node scripts/rotation.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
