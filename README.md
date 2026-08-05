@@ -362,6 +362,17 @@ svårt, och ett olösligt ord är en sämre dag än ett lätt.
 lönar sig), inget enskilt kort ord som pekar rakt på det, och en konkret
 betydelse som en blind modell kan träffa på rätt antal bokstäver.
 
+### Om en dags resultat hamnar fel
+
+Data lagras per **(datum, ordindex)**, inte per datum. Byter ett datum ord —
+vilket hände när banken växte, innan schemat frystes — börjar det nya ordet med
+en tom topplista i stället för att ärva fel ords resultat.
+
+Bytet lämnar samtidigt den gamla dagens resultat på en nyckel ingen läser.
+`npm run migrate:puzzle -- <datum> <ordindex>` flyttar över dem (torrkörning som
+standard, `--apply` skriver). Den använder samma `ZADD LT` som spelet, så en
+flytt kan bara förbättra ett resultat, aldrig skriva över ett bättre.
+
 ### Ordbank & rotation
 
 `server/words.js`: **376 ord** med handförfattade spärrlistor (Taboo-hantverket),

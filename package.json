@@ -17,7 +17,8 @@
     "review:words": "node --max-old-space-size=2000 scripts/review-words.mjs",
     "probe": "node scripts/probe-word.mjs",
     "limits": "node scripts/apply-limits.mjs",
-    "rotation": "node scripts/rotation.mjs"
+    "rotation": "node scripts/rotation.mjs",
+    "migrate:puzzle": "node scripts/migrate-puzzle-keys.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.15.0",
