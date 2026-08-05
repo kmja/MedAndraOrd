@@ -89,7 +89,7 @@ app.get('/api/state', (req, res) => {
 app.post('/api/clue', async (req, res) => {
   const pid = getPlayerId(req, res);
   if (rateLimited(pid)) {
-    return res.status(429).json({ error: 'Lugn — Mullvaden hinner inte med. Vänta en liten stund.' });
+    return res.status(429).json({ error: 'Linjen är överbelastad. Vänta en stund innan nästa sändning.' });
   }
 
   const clue = typeof req.body?.clue === 'string' ? req.body.clue.trim() : '';
@@ -101,7 +101,7 @@ app.post('/api/clue', async (req, res) => {
   const player = store.player(date, index, pid);
 
   if (player.attempts >= MAX_ATTEMPTS) {
-    return res.status(403).json({ error: 'Mullvaden har grävt ner sig för idag. Välkommen tillbaka imorgon!' });
+    return res.status(403).json({ error: 'Stationen har stängt för idag. Linjen öppnar åter imorgon.' });
   }
 
   const normClue = normalize(clue);
@@ -116,7 +116,7 @@ app.post('/api/clue', async (req, res) => {
       verdict = await judgeClue({ clue, target: word, forbidden });
     } catch (err) {
       if (err instanceof AiUnavailableError) {
-        return res.status(503).json({ error: 'Mullvaden svarar inte nere i hålan just nu. Försök igen om en stund — inget försök förbrukades.' });
+        return res.status(503).json({ error: 'Linjen är bruten — mottagaren svarar inte. Försök igen om en stund; ingen taxa debiterades.' });
       }
       console.error('judgeClue failed:', err);
       return res.status(500).json({ error: 'Något gick fel. Inget försök förbrukades.' });

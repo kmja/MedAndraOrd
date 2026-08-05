@@ -1,18 +1,19 @@
 # Ledtråden
 
 Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
-förbjudna ord, och viskar en ledtråd (max 20 tecken) till **Mullvaden** — som
-bor i mörkret och aldrig sett ordet — för att få hen att gissa rätt. Poängen är
-antalet tecken i den kortaste lyckade viskningen — golfregler, lägre är bättre —
-med en grävlista (topplista) per ord.
+spärrade ord, och telegraferar en ledtråd (**max 10 tecken**) till en mottagare
+i fjärran som aldrig sett ordet. Poängen är antalet tecken i det kortaste
+lyckade telegrammet — golfregler, lägre är bättre — med en topplista per ord.
 
-**Mullvaden har aldrig sett ordet.** Gissaren får bara ledtråden och antalet
-bokstäver. Det är spelets integritetsgaranti, och blindheten är hela temat:
-Mullvaden gissar, **Ugglan** dömer viskningarna mot reglerna.
+**Mottagaren har aldrig sett ordet.** Gissaren får bara ledtråden och antalet
+bokstäver. Det är spelets integritetsgaranti.
 
-> Temat är ren presentation: Mullvaden = gissaren, Ugglan = domaren. UI:t säger
-> ärligt i finstilten att Mullvaden spelas av en AI — en rätt gissning är bara
-> imponerande om spelarna litar på att gissaren är blind.
+> Temat är ren presentation: telegramtaxan (varje tecken kostar) är samma
+> mekanik som golfpoängen, och telegrafisten som vägrar sända otillåtna
+> meddelanden är domaren — avvisat telegram = aldrig sänt = ingen taxa = inget
+> förbrukat försök. UI:t säger ärligt i finstilten att mottagaren spelas av en
+> AI — en rätt gissning är bara imponerande om spelarna litar på att gissaren
+> är blind.
 
 ## Arkitektur
 
@@ -32,7 +33,8 @@ aldrig spel. Om gissar-loopen tar slut visas gissningen genomstruken och
 **räknas som miss** — en regelbrytande gissning presenteras aldrig som giltig.
 
 Deterministiska kontroller i kod (`server/util.js`):
-- Max 20 tecken.
+- Max 10 tecken (`MAX_CLUE_LENGTH` i `server/util.js` — enda stället; UI:t hämtar
+  gränsen från `/api/state`).
 - Emoji avvisas via Unicode property-regex före alla API-anrop.
 - Målord/förbjudna ord som (normaliserad) delsträng i ledtråden.
 

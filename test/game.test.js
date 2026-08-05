@@ -27,12 +27,22 @@ test('letterCount counts only letters', () => {
 });
 
 test('checkClueCode: valid clue passes', () => {
-  assert.equal(checkClueCode('kaninens favorit', 'morot', ['grönsak', 'orange']), null);
+  assert.equal(checkClueCode('kaninmat', 'morot', ['grönsak', 'orange']), null);
 });
 
-test('checkClueCode rejects clue over 20 chars', () => {
-  const long = 'a'.repeat(MAX_CLUE_LENGTH + 1);
-  assert.equal(checkClueCode(long, 'morot', []).code, 'too_long');
+test('clue limit is a tight 10 characters', () => {
+  assert.equal(MAX_CLUE_LENGTH, 10);
+});
+
+test('checkClueCode rejects clues over the limit but allows exactly the limit', () => {
+  assert.equal(checkClueCode('a'.repeat(MAX_CLUE_LENGTH + 1), 'morot', []).code, 'too_long');
+  assert.equal(checkClueCode('a'.repeat(MAX_CLUE_LENGTH), 'morot', []), null);
+});
+
+test('the limit counts unicode chars, so å/ä/ö cost the same as a/o', () => {
+  assert.equal(checkClueCode('påskägget', 'morot', []), null); // 9 chars
+  assert.equal(checkClueCode('trädgården', 'morot', []), null); // exactly 10
+  assert.equal(checkClueCode('trädgårdar!', 'morot', []).code, 'too_long'); // 11
 });
 
 test('checkClueCode rejects emoji before any API call', () => {
@@ -40,11 +50,11 @@ test('checkClueCode rejects emoji before any API call', () => {
 });
 
 test('checkClueCode rejects target word as substring (normalized)', () => {
-  assert.equal(checkClueCode('en Morotsbit', 'morot', []).code, 'contains_target');
+  assert.equal(checkClueCode('Morotsbit', 'morot', []).code, 'contains_target');
 });
 
 test('checkClueCode rejects forbidden word as substring', () => {
-  assert.equal(checkClueCode('orangefärgad sak', 'morot', ['orange']).code, 'contains_forbidden');
+  assert.equal(checkClueCode('orangesak', 'morot', ['orange']).code, 'contains_forbidden');
 });
 
 test('extractWord pulls a single word from noisy output', () => {
@@ -154,7 +164,7 @@ test('judgeClue: code check rejects without touching AI', async () => {
 
 test('judgeClue: referee rejection costs nothing and has a reason', async () => {
   const ai = mockAi({ guesses: ['x'], refereeRuling: { legal: false, reason: 'Översättning av målordet.' } });
-  const v = await judgeClue({ clue: 'carrot på svenska', target: 'morot', forbidden: [], ai });
+  const v = await judgeClue({ clue: 'carrot', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'rejected');
   assert.equal(v.source, 'referee');
 });
@@ -168,14 +178,16 @@ test('judgeClue: referee failure fails open — play proceeds', async () => {
 
 test('judgeClue: correct guess scores by clue character count', async () => {
   const ai = mockAi({ guesses: ['morot'] });
-  const v = await judgeClue({ clue: 'kaninens godis', target: 'morot', forbidden: [], ai });
-  assert.equal(v.type, 'correct');
-  assert.equal(v.score, 14);
+  const v = await judgeClue({ clue: 'kanin godis', target: 'morot', forbidden: [], ai });
+  assert.equal(v.type, 'rejected'); // 11 chars — over the limit now
+  const v2 = await judgeClue({ clue: 'kaningodis', target: 'morot', forbidden: [], ai });
+  assert.equal(v2.type, 'correct');
+  assert.equal(v2.score, 10);
 });
 
 test('judgeClue: wrong valid guess is a miss', async () => {
   const ai = mockAi({ guesses: ['kanin'] });
-  const v = await judgeClue({ clue: 'lång och orange', target: 'morot', forbidden: [], ai });
+  const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'wrong');
   assert.equal(v.guess, 'kanin');
 });

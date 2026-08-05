@@ -1,7 +1,7 @@
 // Pure helpers — every rule that can be checked deterministically lives here,
 // not in a prompt. (Core principle: prompt for judgment, code for constraints.)
 
-export const MAX_CLUE_LENGTH = 20;
+export const MAX_CLUE_LENGTH = 10;
 
 /** Lowercase + unicode-normalize + collapse whitespace. Keeps å/ä/ö intact. */
 export function normalize(s) {

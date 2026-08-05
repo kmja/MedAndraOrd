@@ -15,36 +15,6 @@ function charCount(s) {
   return [...s].length;
 }
 
-/** Mullvaden — blind, blyg och förvånansvärt bra på ord. */
-function Mole({ size = 96 }) {
-  return (
-    <svg width={size} height={size * 0.85} viewBox="0 0 120 102" aria-hidden="true">
-      {/* jordhög */}
-      <ellipse cx="60" cy="94" rx="52" ry="8" fill="#d9c9a8" />
-      {/* kropp */}
-      <ellipse cx="60" cy="58" rx="42" ry="36" fill="#7a6a5c" />
-      <ellipse cx="60" cy="66" rx="30" ry="24" fill="#8d7d6e" />
-      {/* nos */}
-      <ellipse cx="60" cy="46" rx="10" ry="8" fill="#e8a1a1" />
-      <circle cx="57" cy="44" r="1.6" fill="#5c4f44" />
-      <circle cx="63" cy="44" r="1.6" fill="#5c4f44" />
-      {/* blunda-ögon */}
-      <path d="M38 38 q6 5 12 0" stroke="#3f362e" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      <path d="M70 38 q6 5 12 0" stroke="#3f362e" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      {/* morrhår */}
-      <g stroke="#c9bfb4" strokeWidth="1.4" strokeLinecap="round">
-        <path d="M46 48 L28 44" /> <path d="M46 52 L28 54" />
-        <path d="M74 48 L92 44" /> <path d="M74 52 L92 54" />
-      </g>
-      {/* leende */}
-      <path d="M54 58 q6 6 12 0" stroke="#3f362e" strokeWidth="2.2" fill="none" strokeLinecap="round" />
-      {/* tassar */}
-      <ellipse cx="34" cy="80" rx="10" ry="7" fill="#e8a1a1" transform="rotate(-20 34 80)" />
-      <ellipse cx="86" cy="80" rx="10" ry="7" fill="#e8a1a1" transform="rotate(20 86 80)" />
-    </svg>
-  );
-}
-
 export default function App() {
   const [state, setState] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -65,7 +35,7 @@ export default function App() {
   }, []);
 
   if (loadError) return <div className="shell"><p className="error">{loadError}</p></div>;
-  if (!state) return <div className="shell"><p className="muted">Gräver fram dagens ord…</p></div>;
+  if (!state) return <div className="shell"><p className="muted">Öppnar linjen…</p></div>;
 
   const outOfAttempts = state.attemptsLeft <= 0;
   const clueLen = charCount(clue.trim());
@@ -114,30 +84,30 @@ export default function App() {
   return (
     <div className="shell">
       <header>
-        <Mole />
+        <div className="masthead">Rikstelegrafen · Daglig förbindelse · Nr {state.date}</div>
         <h1>Ledtråden</h1>
         <p className="tagline">
-          Mullvaden bor i mörkret och har aldrig sett dagens ord.
+          Er korrespondent i fjärran har aldrig sett dagens ord.
           <br />
-          Viska en ledtråd — kortast viskning vinner.
+          Telegrafera en ledtråd. Varje tecken kostar — billigast vinner.
         </p>
         <p
           className="badge"
-          title="Mullvaden spelas av en AI som bara får din ledtråd och ordets antal bokstäver — aldrig ordet eller de förbjudna orden."
+          title="Mottagaren spelas av en AI som endast erhåller telegrammets text samt ordets antal bokstäver — aldrig ordet eller de spärrade orden."
         >
-          🕳️ Mullvaden har aldrig sett ordet
+          Mottagaren har aldrig sett ordet
         </p>
       </header>
 
       <section className="card word-card">
         <div className="word-row">
           <div>
-            <div className="label">Dagens ord · {state.date}</div>
+            <div className="label">Dagens ord</div>
             <div className="secret-word">{state.word.toUpperCase()}</div>
             <div className="muted">{state.letterCount} bokstäver</div>
           </div>
           <div className="attempts">
-            <div className="label">Viskningar kvar</div>
+            <div className="label">Sändningar kvar</div>
             <div className="attempt-dots">
               {Array.from({ length: state.maxAttempts }, (_, i) => (
                 <span key={i} className={i < state.attemptsLeft ? 'dot on' : 'dot'} />
@@ -146,7 +116,7 @@ export default function App() {
           </div>
         </div>
         <div className="forbidden">
-          <div className="label">🦉 Ugglans förbjudna ord</div>
+          <div className="label">Spärrade ord — sänds ej</div>
           <div className="chips">
             {state.forbidden.map((f) => (
               <span key={f} className="chip">{f}</span>
@@ -157,7 +127,7 @@ export default function App() {
 
       <section className="card">
         {state.best != null && (
-          <p className="best">Din kortaste viskning idag: <strong>{state.best} tecken</strong> 🌱</p>
+          <p className="best">Ert billigaste telegram idag: <strong>{state.best} tecken</strong></p>
         )}
         <form onSubmit={submit} className="clue-form">
           <div className="input-row">
@@ -165,23 +135,24 @@ export default function App() {
               ref={inputRef}
               value={clue}
               onChange={(e) => setClue(e.target.value)}
-              placeholder={outOfAttempts ? 'Mullvaden sover till imorgon' : 'Viska till Mullvaden…'}
+              placeholder={outOfAttempts ? 'Stationen har stängt för idag' : 'Avfatta ert telegram…'}
               disabled={busy || outOfAttempts}
               autoFocus
               maxLength={60}
+              className="wire-input"
             />
             <button type="submit" disabled={busy || outOfAttempts || !clue.trim() || tooLong}>
-              {busy ? 'Gräver…' : 'Viska'}
+              {busy ? 'Sänder…' : 'Sänd'}
             </button>
           </div>
           <div className={tooLong ? 'counter over' : 'counter'}>
-            {clueLen} / {state.maxClueLength} tecken
+            Taxa: {clueLen} / {state.maxClueLength} tecken
           </div>
         </form>
         {flash && <p className="error">{flash}</p>}
 
         <ul className="history">
-          {busy && <li className="entry thinking">Mullvaden funderar nere i hålan…</li>}
+          {busy && <li className="entry thinking">— · — ·&ensp;Inväntar svar från mottagaren…</li>}
           {history.map((h, i) => (
             <HistoryEntry key={history.length - i} entry={h} />
           ))}
@@ -189,9 +160,9 @@ export default function App() {
       </section>
 
       <section className="card">
-        <h2>Dagens grävlista</h2>
+        <h2>Dagens billigaste telegram</h2>
         {state.leaderboard.length === 0 ? (
-          <p className="muted">Ingen har fått Mullvaden att gissa rätt ännu. Bli först!</p>
+          <p className="muted">Inget lyckat telegram har sänts idag. Linjen är er.</p>
         ) : (
           <ol className="leaderboard">
             {state.leaderboard.map((row) => (
@@ -206,22 +177,23 @@ export default function App() {
           <input
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
-            placeholder="Ditt namn på grävlistan"
+            placeholder="Ert namn i liggaren"
             maxLength={20}
           />
-          <button type="submit" disabled={!nameInput.trim()}>Spara namn</button>
+          <button type="submit" disabled={!nameInput.trim()}>Anteckna</button>
         </form>
       </section>
 
       <footer className="muted">
         <p>
-          Ugglan vakar över reglerna: max {state.maxClueLength} tecken, svenska ord, inga förbjudna
+          Telegrafistens reglemente: högst {state.maxClueLength} tecken, svenska ord, inga spärrade
           ord, inga översättningar av målordet, inga förkortningar eller bokstaverings­trick.
-          Underkända viskningar kostar inget försök. Poäng = antal tecken i din kortaste lyckade
-          ledtråd — lägre är bättre.
+          Avvisade telegram sänds ej och debiteras ej. Taxa = antal tecken i ert kortaste lyckade
+          telegram — lägre är bättre.
         </p>
         <p className="fineprint">
-          Mullvaden spelas av en AI som bara får din ledtråd och antalet bokstäver — aldrig ordet.
+          Mottagaren spelas av en AI som endast erhåller telegrammets text och ordets antal
+          bokstäver — aldrig ordet.
         </p>
       </footer>
     </div>
@@ -229,39 +201,41 @@ export default function App() {
 }
 
 function HistoryEntry({ entry }) {
+  const sent = <span className="wire sent">SÄNT: {entry.clue.toUpperCase()}</span>;
+
   if (entry.type === 'rejected') {
     return (
       <li className="entry rejected">
-        <span className="clue-text">”{entry.clue}”</span>
-        <span className="verdict">🦉 Ugglan säger nej: {entry.reason} <em>(kostade inget försök)</em></span>
+        <span className="wire refused">EJ SÄNT: {entry.clue.toUpperCase()}</span>
+        <span className="verdict">Telegrafisten vägrar sända: {entry.reason} <em>(ingen taxa — inget försök förbrukat)</em></span>
       </li>
     );
   }
   if (entry.type === 'correct') {
     return (
       <li className="entry correct">
-        <span className="clue-text">”{entry.clue}”</span>
-        <span className="verdict">
-          Mullvaden ropar: <strong>{entry.guess?.toUpperCase()}</strong> — 🎉 Rätt! {entry.score} tecken
-        </span>
+        {sent}
+        <span className="wire reply">SVAR: {entry.guess?.toUpperCase()} STOP</span>
+        <span className="verdict">Rätt ord. Taxa: {entry.score} tecken.</span>
       </li>
     );
   }
   if (entry.type === 'ai_failure') {
     return (
       <li className="entry failure">
-        <span className="clue-text">”{entry.clue}”</span>
+        {sent}
+        {entry.guess && <span className="wire reply"><s>SVAR: {entry.guess.toUpperCase()}</s> STOP</span>}
         <span className="verdict">
-          Mullvaden kom inte på något riktigt ord
-          {entry.guess ? <> — <s>{entry.guess}</s></> : null} <em>(räknas som miss)</em>
+          Mottagaren svarade med ett ord som inte finns — sändningen ogiltig. <em>(räknas som miss)</em>
         </span>
       </li>
     );
   }
   return (
     <li className="entry wrong">
-      <span className="clue-text">”{entry.clue}”</span>
-      <span className="verdict">Mullvaden gissar <strong>{entry.guess}</strong> — inte rätt 🌫️</span>
+      {sent}
+      <span className="wire reply">SVAR: {entry.guess?.toUpperCase()} STOP</span>
+      <span className="verdict">Fel ord.</span>
     </li>
   );
 }
