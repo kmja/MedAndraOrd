@@ -51,8 +51,7 @@ h1 { margin: 0; font-family: var(--serif); font-size: 2.2rem; letter-spacing: 0.
 }
 
 /* ---- the puzzle ---- */
-.puzzle-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; gap: 10px; }
-.attempts-count { font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.puzzle .label { display: block; margin-bottom: 8px; }
 
 .row {
   display: grid;
@@ -60,6 +59,7 @@ h1 { margin: 0; font-family: var(--serif); font-size: 2.2rem; letter-spacing: 0.
   gap: 4px;
   justify-content: start;
 }
+.row-big { --box: clamp(38px, 11vw, 54px); }
 .box {
   aspect-ratio: 1;
   min-width: 0;
@@ -84,73 +84,41 @@ h1 { margin: 0; font-family: var(--serif); font-size: 2.2rem; letter-spacing: 0.
   text-decoration-thickness: 1.5px;
 }
 
-/* ---- attempt slots: the spine of the page ---- */
-.slots { list-style: none; margin: 22px 0 0; padding: 18px 0 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+/* ---- the answer stack: newest on top, older pushed down ---- */
+.responses { display: flex; flex-direction: column; gap: 14px; margin-top: 22px; }
 
-.slot { display: flex; gap: 12px; align-items: flex-start; }
-.slot-num {
-  flex: none;
-  width: 22px; height: 22px;
-  margin-top: 2px;
-  border: 1.5px solid var(--line);
-  border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 0.72rem; font-weight: 700;
-  color: var(--faint);
-  font-variant-numeric: tabular-nums;
+.response {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  animation: rise 0.32s ease-out;
 }
-.slot-body { flex: 1; min-width: 0; }
-
-.slot-empty .slot-body,
-.slot-used .slot-body {
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  padding: 9px 12px;
-}
-.slot-placeholder { font-size: 0.85rem; color: var(--faint); }
-.slot-used .slot-placeholder { color: var(--muted); }
-
-.slot-correct .slot-num { border-color: var(--correct); color: var(--correct); background: var(--correct-soft); }
-.slot-wrong .slot-num { border-color: var(--miss); color: var(--miss); }
-.slot-pending .slot-num { border-color: var(--ink); color: var(--ink); }
-
-/* ---- one exchange: call, then response ---- */
-.exchange { position: relative; display: flex; flex-direction: column; gap: 8px; }
-
-.turn { display: flex; flex-direction: column; gap: 4px; }
-.turn-label {
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--faint);
-}
-.turn-body { display: flex; flex-direction: column; gap: 6px; }
-
-.turn-you .clue-text {
-  font-family: var(--serif);
-  font-size: 1.05rem;
-  padding: 7px 12px;
-  background: #f7f2e6;
-  border: 1px solid var(--line);
-  border-radius: 8px 8px 8px 2px;
-  align-self: flex-start;
-  max-width: 100%;
-  overflow-wrap: anywhere;
+@keyframes rise {
+  0% { transform: translateY(-8px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
 }
 
-/* The response is indented and marked with a connector, so the call-and-
-   response reads as one exchange rather than two unrelated rows. */
-.turn-ai { position: relative; padding-left: 14px; border-left: 2px solid var(--line); margin-left: 2px; }
-.slot-correct .turn-ai { border-left-color: var(--correct); }
-.slot-wrong .turn-ai { border-left-color: var(--miss); }
+/* Older answers recede so the newest is unmistakably the current one. */
+.response:not(.is-latest) { opacity: 0.55; }
+.response:not(.is-latest) .verdict { font-size: 0.85rem; }
 
-.verdict { font-size: 0.9rem; }
-.verdict-win { color: var(--correct); font-weight: 700; animation: pop-in 0.4s 0.5s ease-out backwards; }
+.eyebrow { margin: 0 0 10px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.eyebrow-label {
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--faint);
+}
+.eyebrow-clue {
+  font-family: var(--serif); font-size: 1.05rem; color: var(--muted); overflow-wrap: anywhere;
+}
+.is-latest .eyebrow-clue { color: var(--ink); }
+
+.answer { position: relative; }
+
+.verdict { margin: 10px 0 0; font-size: 0.95rem; }
+.verdict-win { color: var(--correct); font-weight: 700; font-size: 1.1rem; animation: pop-in 0.4s 0.55s ease-out backwards; }
 .verdict-miss { color: var(--muted); }
 
 /* ---- loading ---- */
 .row-pending .box { border-color: var(--line); background: #fbf8f0; animation: breathe 1.1s ease-in-out infinite; animation-delay: calc(var(--i) * 90ms); }
-.thinking { font-size: 0.9rem; color: var(--muted); }
+.thinking { color: var(--muted); }
 .thinking i { font-style: normal; animation: blink 1.2s infinite; }
 .thinking i:nth-child(2) { animation-delay: 0.2s; }
 .thinking i:nth-child(3) { animation-delay: 0.4s; }
@@ -177,39 +145,32 @@ h1 { margin: 0; font-family: var(--serif); font-size: 2.2rem; letter-spacing: 0.
   100% { transform: none; opacity: 1; }
 }
 
-/* Burst from the middle of the guess row, after the letters have flipped in. */
-.sparkles { position: absolute; left: 50%; top: 52%; width: 0; height: 0; pointer-events: none; }
+.sparkles { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
 .sparkles i {
   position: absolute;
-  width: 6px; height: 6px;
-  margin: -3px;
+  width: 7px; height: 7px; margin: -3.5px;
   border-radius: 50%;
   background: var(--correct);
   opacity: 0;
-  animation: sparkle 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
-  animation-delay: calc(0.34s + var(--s) * 18ms);
+  animation: sparkle 0.72s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  animation-delay: calc(0.36s + var(--s) * 18ms);
 }
 @keyframes sparkle {
-  0%   { opacity: 0.85; transform: rotate(calc(var(--s) * 36deg)) translateX(6px) scale(1); }
-  100% { opacity: 0; transform: rotate(calc(var(--s) * 36deg)) translateX(74px) scale(0.25); }
+  0%   { opacity: 0.85; transform: rotate(calc(var(--s) * 36deg)) translateX(8px) scale(1); }
+  100% { opacity: 0; transform: rotate(calc(var(--s) * 36deg)) translateX(88px) scale(0.25); }
 }
 
-/* A ring pulses out from the row as the last letter lands. */
-.slot-correct .row-correct { animation: glow 0.85s 0.28s ease-out; border-radius: 3px; }
+.response-correct .row-correct { animation: glow 0.9s 0.3s ease-out; border-radius: 3px; }
 @keyframes glow {
-  0%   { box-shadow: 0 0 0 0 rgba(47, 107, 69, 0.28); }
-  70%  { box-shadow: 0 0 0 12px rgba(47, 107, 69, 0); }
+  0%   { box-shadow: 0 0 0 0 rgba(47, 107, 69, 0.3); }
+  70%  { box-shadow: 0 0 0 14px rgba(47, 107, 69, 0); }
   100% { box-shadow: 0 0 0 0 rgba(47, 107, 69, 0); }
 }
 
 /* ---- miss ---- */
-.row-wrong {
-  animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-}
+.row-wrong { animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
 .row-wrong .box {
-  border-color: var(--line);
-  color: var(--miss);
-  background: #faf7f0;
+  border-color: var(--line); color: var(--miss); background: #faf7f0;
   animation: drop-in 0.3s ease-out backwards;
   animation-delay: calc(var(--i) * 45ms);
 }
@@ -222,6 +183,26 @@ h1 { margin: 0; font-family: var(--serif); font-size: 2.2rem; letter-spacing: 0.
 @keyframes drop-in {
   0% { transform: translateY(-6px); opacity: 0; }
   100% { transform: none; opacity: 1; }
+}
+
+/* ---- the board, inline after a win ---- */
+.board { margin-top: 18px; }
+.board-compact {
+  background: var(--correct-soft);
+  border: 1px solid #cfe3d4;
+  border-radius: 10px;
+  padding: 14px 16px;
+  animation: pop-in 0.45s 0.7s ease-out backwards;
+}
+.standing { margin: 0 0 10px; font-weight: 700; color: var(--correct); }
+.board-compact h2 { font-size: 0.95rem; margin-bottom: 8px; }
+.leaderboard li.is-you { font-weight: 700; }
+.leaderboard li.is-you .lb-name::after { content: ' — du'; color: var(--muted); font-weight: 400; }
+.leaderboard li.after-gap { position: relative; margin-top: 14px; }
+.leaderboard li.after-gap::before {
+  content: '⋮';
+  position: absolute; top: -15px; left: 0;
+  color: var(--faint); font-weight: 400; line-height: 1;
 }
 
 /* ---- notices: outcomes that cost nothing ---- */
@@ -239,7 +220,9 @@ h1 { margin: 0; font-family: var(--serif); font-size: 2.2rem; letter-spacing: 0.
 .notice s { opacity: 0.8; }
 
 /* ---- clue form ---- */
-.clue-form { margin: 16px 0 0; }
+.clue-form { margin: 20px 0 0; padding-top: 18px; border-top: 1px solid var(--line); }
+.attempts { margin: 0 0 10px; font-size: 0.95rem; font-weight: 600; }
+.attempts-out { color: var(--muted); font-weight: 500; }
 .input-row { display: flex; gap: 8px; }
 
 input {
@@ -307,7 +290,9 @@ footer li { margin-bottom: 3px; }
   .row-wrong .box,
   .verdict-win,
   .notice,
-  .slot-correct .row-correct,
+  .response,
+  .board-compact,
+  .response-correct .row-correct,
   .thinking i { animation: none; }
   .sparkles { display: none; }
 }

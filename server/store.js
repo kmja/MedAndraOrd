@@ -13,6 +13,20 @@ import path from 'node:path';
 
 const LEADERBOARD_LIMIT = 20;
 
+/**
+ * Competition ranking over an already-sorted list: equal scores share a rank
+ * (1, 2, 2, 4). Must match standing(), or a player's stated placing would
+ * disagree with the row they are standing on.
+ */
+function withRanks(rows) {
+  let rank = 0;
+  let prev = null;
+  return rows.map((row, i) => {
+    if (row.score !== prev) { rank = i + 1; prev = row.score; }
+    return { rank, ...row };
+  });
+}
+
 // ---------------------------------------------------------------------------
 
 class MemoryStore {
@@ -62,15 +76,28 @@ class MemoryStore {
     this.names.set(pid, name);
   }
 
-  async leaderboard(date) {
+  async leaderboard(date, viewerPid) {
     const day = this.bests.get(date);
     if (!day) return [];
     const rows = [...day.entries()].sort((a, b) => a[1] - b[1]).slice(0, LEADERBOARD_LIMIT);
-    return rows.map(([pid, score], i) => ({
-      rank: i + 1,
-      name: this.names.get(pid) || 'Anonym',
-      score,
-    }));
+    return withRanks(
+      rows.map(([pid, score]) => ({ score, name: this.names.get(pid) || 'Anonym', you: pid === viewerPid })),
+    );
+  }
+
+  /**
+   * Where this player stands among everyone who solved today.
+   * Competition ranking: everyone on the same score shares a rank, so ties
+   * never invent an ordering the scores don't support.
+   * Returns { rank, total } or null if they haven't solved it.
+   */
+  async standing(date, pid) {
+    const day = this.bests.get(date);
+    const mine = day?.get(pid);
+    if (mine == null) return null;
+    let better = 0;
+    for (const score of day.values()) if (score < mine) better++;
+    return { rank: better + 1, total: day.size };
   }
 }
 
@@ -201,15 +228,31 @@ class KvStore {
     await this._cmd('SET', `name:${pid}`, name);
   }
 
-  async leaderboard(date) {
+  async leaderboard(date, viewerPid) {
     const flat = await this._cmd('ZRANGE', `best:${date}`, '0', String(LEADERBOARD_LIMIT - 1), 'WITHSCORES');
     if (!Array.isArray(flat) || flat.length === 0) return [];
     const rows = [];
     for (let i = 0; i < flat.length; i += 2) rows.push({ pid: flat[i], score: Number(flat[i + 1]) });
-    const names = rows.length
-      ? await this._cmd('MGET', ...rows.map((r) => `name:${r.pid}`))
-      : [];
-    return rows.map((r, i) => ({ rank: i + 1, name: names[i] || 'Anonym', score: r.score }));
+    const names = await this._cmd('MGET', ...rows.map((r) => `name:${r.pid}`));
+    return withRanks(
+      rows.map((r, i) => ({ score: r.score, name: names[i] || 'Anonym', you: r.pid === viewerPid })),
+    );
+  }
+
+  /**
+   * Competition ranking via ZCOUNT of strictly better scores — Redis does the
+   * counting, so this stays one round trip per figure regardless of how many
+   * players there are. ZRANK would break ties arbitrarily by insertion order.
+   */
+  async standing(date, pid) {
+    const key = `best:${date}`;
+    const mine = await this.getBest(date, pid);
+    if (mine == null) return null;
+    const [better, total] = await Promise.all([
+      this._cmd('ZCOUNT', key, '-inf', `(${mine}`),
+      this._cmd('ZCARD', key),
+    ]);
+    return { rank: Number(better) + 1, total: Number(total) };
   }
 }
 

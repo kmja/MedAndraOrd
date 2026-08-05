@@ -83,11 +83,12 @@ export async function stateHandler(req, res) {
   const date = todayInStockholm();
   const { word, forbidden, letterCount } = wordForDate(date);
 
-  const [attempts, best, name, leaderboard] = await Promise.all([
+  const [attempts, best, name, leaderboard, standing] = await Promise.all([
     store.getAttempts(date, pid),
     store.getBest(date, pid),
     store.getName(pid),
-    store.leaderboard(date),
+    store.leaderboard(date, pid),
+    store.standing(date, pid),
   ]);
 
   send(res, 200, {
@@ -101,6 +102,7 @@ export async function stateHandler(req, res) {
     best,
     name,
     leaderboard,
+    standing,
     practiceEnabled: PRACTICE_ENABLED,
     bankSize: WORDS.length,
     durable: store.durable,
@@ -204,7 +206,8 @@ export async function clueHandler(req, res) {
     cached,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - newAttempts),
     best,
-    leaderboard: await store.leaderboard(date),
+    leaderboard: await store.leaderboard(date, pid),
+    standing: await store.standing(date, pid),
   });
 }
 
@@ -214,5 +217,5 @@ export async function nameHandler(req, res) {
   const name = sanitizeName(parseBody(req).name);
   if (!name) return send(res, 400, { error: 'Ogiltigt namn.' });
   await store.setName(pid, name);
-  send(res, 200, { name, leaderboard: await store.leaderboard(todayInStockholm()) });
+  send(res, 200, { name, leaderboard: await store.leaderboard(todayInStockholm(), pid) });
 }

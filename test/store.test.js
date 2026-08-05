@@ -33,11 +33,11 @@ test('leaderboard sorts ascending and resolves names', async () => {
   await s.recordBest('d', 'a', 9);
   await s.recordBest('d', 'b', 4);
   await s.recordBest('d', 'c', 7); // no name set
-  const lb = await s.leaderboard('d');
+  const lb = await s.leaderboard('d', 'b');
   assert.deepEqual(lb, [
-    { rank: 1, name: 'Bo', score: 4 },
-    { rank: 2, name: 'Anonym', score: 7 },
-    { rank: 3, name: 'Anna', score: 9 },
+    { rank: 1, name: 'Bo', score: 4, you: true },
+    { rank: 2, name: 'Anonym', score: 7, you: false },
+    { rank: 3, name: 'Anna', score: 9, you: false },
   ]);
 });
 
@@ -96,9 +96,9 @@ test('KvStore parses the flat ZRANGE WITHSCORES reply into ranked rows', async (
     if (c[0] === 'MGET') return ['Bo', null];
     return null;
   });
-  assert.deepEqual(await store.leaderboard('d'), [
-    { rank: 1, name: 'Bo', score: 4 },
-    { rank: 2, name: 'Anonym', score: 9 },
+  assert.deepEqual(await store.leaderboard('d', 'pidA'), [
+    { rank: 1, name: 'Bo', score: 4, you: false },
+    { rank: 2, name: 'Anonym', score: 9, you: true },
   ]);
 });
 
@@ -120,4 +120,67 @@ test('KvStore round-trips verdicts as JSON', async () => {
 
 test('KvStore reports itself as durable', () => {
   assert.equal(new KvStore('https://x', 't').durable, true);
+});
+
+// ---------------------------------------------------------------------------
+// standing + leaderboard identity
+// ---------------------------------------------------------------------------
+
+test('standing uses competition ranking, so ties share a place', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4);
+  await s.recordBest('d', 'b', 6);
+  await s.recordBest('d', 'c', 6);
+  await s.recordBest('d', 'e', 9);
+  assert.deepEqual(await s.standing('d', 'a'), { rank: 1, total: 4 });
+  assert.deepEqual(await s.standing('d', 'b'), { rank: 2, total: 4 });
+  assert.deepEqual(await s.standing('d', 'c'), { rank: 2, total: 4 }, 'tied players share a rank');
+  assert.deepEqual(await s.standing('d', 'e'), { rank: 4, total: 4 }, 'the tie consumes the next place');
+});
+
+test('standing is null for a player who has not solved it', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4);
+  assert.equal(await s.standing('d', 'nobody'), null);
+  assert.equal(await s.standing('otherday', 'a'), null);
+});
+
+test('leaderboard ranks agree with standing, and mark the viewer', async () => {
+  // These two disagreeing is how a player ends up labelled as someone else.
+  const s = new MemoryStore();
+  await s.setName('a', 'Astrid');
+  await s.setName('b', 'Bo');
+  await s.setName('c', 'Cilla');
+  await s.recordBest('d', 'a', 4);
+  await s.recordBest('d', 'b', 6);
+  await s.recordBest('d', 'c', 6);
+
+  const board = await s.leaderboard('d', 'c');
+  assert.deepEqual(board.map((r) => r.rank), [1, 2, 2]);
+
+  const mine = board.find((r) => r.you);
+  assert.equal(mine.name, 'Cilla', 'the viewer flag must land on the viewer');
+  assert.equal(board.filter((r) => r.you).length, 1);
+
+  const standing = await s.standing('d', 'c');
+  assert.equal(mine.rank, standing.rank, 'stated placing must match the row shown');
+});
+
+test('leaderboard marks nobody when the viewer has not played', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4);
+  const board = await s.leaderboard('d', 'stranger');
+  assert.equal(board.filter((r) => r.you).length, 0);
+});
+
+test('KvStore.standing counts strictly better scores', async () => {
+  const { store, calls } = stubKv((c) => {
+    if (c[0] === 'ZSCORE') return '6';
+    if (c[0] === 'ZCOUNT') return 2;
+    if (c[0] === 'ZCARD') return 14;
+    return null;
+  });
+  assert.deepEqual(await store.standing('d', 'pid'), { rank: 3, total: 14 });
+  const zcount = calls.find((c) => c.command[0] === 'ZCOUNT');
+  assert.equal(zcount.command[3], '(6', 'must exclude equal scores, or ties would outrank each other');
 });

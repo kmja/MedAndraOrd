@@ -17,19 +17,30 @@ const chars = (s) => [...String(s ?? '')];
 // out for readability never costs a point. The server is still authoritative.
 const clueLength = (s) => chars(s).filter((c) => !/\s/u.test(c)).length;
 
-// Only these cost an attempt, so only these take a slot. Mirrors
+// Only these cost an attempt, so only these become cards. Mirrors
 // costsAttempt() in server/game.js.
-const takesSlot = (entry) => entry?.type === 'correct' || entry?.type === 'wrong';
+const isAttempt = (entry) => entry?.type === 'correct' || entry?.type === 'wrong';
 
 /**
- * A row of crossword squares. Each box carries its index so CSS can stagger
- * the reveal — the letters land one after another rather than all at once.
+ * How the player stands among today's solvers, in words.
+ * A percentile from three players is noise, so small fields get a plain
+ * placing instead of a made-up-sounding percentage.
  */
-function LetterRow({ word, tone = 'answer', length }) {
+function standingText(standing) {
+  if (!standing) return null;
+  const { rank, total } = standing;
+  if (total <= 1) return 'Först idag!';
+  if (rank === 1) return `Bäst idag — av ${total} spelare`;
+  if (total < 10) return `Plats ${rank} av ${total} idag`;
+  const pct = Math.max(1, Math.round((rank / total) * 100));
+  return `Du är bland de ${pct} % bästa idag`;
+}
+
+function LetterRow({ word, tone = 'answer', length, size }) {
   const letters = word ? chars(word.toUpperCase()) : Array.from({ length: length ?? 0 }, () => '');
   return (
     <div
-      className={`row row-${tone}`}
+      className={`row row-${tone}${size ? ` row-${size}` : ''}`}
       style={{ '--n': letters.length }}
       aria-label={word || `${length} bokstäver`}
     >
@@ -40,71 +51,78 @@ function LetterRow({ word, tone = 'answer', length }) {
   );
 }
 
-/** The two halves of one exchange: what you said, what the AI answered. */
-function Exchange({ clue, entry, pending, letterCount }) {
+/** The AI's answer, centre stage, with the clue that produced it as an eyebrow. */
+function ResponseCard({ entry, pending, clue, letterCount, latest, children }) {
+  const tone = pending ? 'pending' : entry.type === 'correct' ? 'correct' : 'wrong';
   return (
-    <div className="exchange">
-      <div className="turn turn-you">
-        <span className="turn-label">Din ledtråd</span>
-        <span className="turn-body clue-text">{clue}</span>
-      </div>
+    <article className={`response response-${tone}${latest ? ' is-latest' : ''}`}>
+      <p className="eyebrow">
+        <span className="eyebrow-label">Din ledtråd</span>
+        <span className="eyebrow-clue">{pending ? clue : entry.clue}</span>
+      </p>
 
-      <div className={pending ? 'turn turn-ai is-pending' : 'turn turn-ai'}>
-        <span className="turn-label">AI:ns gissning</span>
-        <span className="turn-body">
-          {pending ? (
-            <>
-              <LetterRow length={letterCount} tone="pending" />
-              <span className="thinking">Tänker<i>.</i><i>.</i><i>.</i></span>
-            </>
-          ) : (
-            <>
-              <LetterRow
-                word={entry.guess}
-                tone={entry.type === 'correct' ? 'correct' : 'wrong'}
-                length={letterCount}
-              />
-              {entry.type === 'correct' ? (
-                <span className="verdict verdict-win">
-                  Rätt! <strong>{entry.score} tecken</strong>
-                </span>
-              ) : (
-                <span className="verdict verdict-miss">Inte rätt ord</span>
-              )}
-            </>
-          )}
-        </span>
-
-        {/* Burst from the centre of the guess row, once it has landed. */}
-        {entry?.type === 'correct' && (
+      <div className="answer">
+        <LetterRow
+          word={pending ? undefined : entry.guess}
+          length={letterCount}
+          tone={tone}
+          size={latest ? 'big' : undefined}
+        />
+        {tone === 'correct' && (
           <span className="sparkles" aria-hidden="true">
-            {Array.from({ length: 10 }, (_, i) => (
-              <i key={i} style={{ '--s': i }} />
-            ))}
+            {Array.from({ length: 10 }, (_, i) => <i key={i} style={{ '--s': i }} />)}
           </span>
         )}
       </div>
-    </div>
+
+      {pending ? (
+        <p className="verdict thinking">AI:n gissar<i>.</i><i>.</i><i>.</i></p>
+      ) : entry.type === 'correct' ? (
+        <p className="verdict verdict-win">Rätt! <strong>{entry.score} tecken</strong></p>
+      ) : (
+        <p className="verdict verdict-miss">Inte rätt ord</p>
+      )}
+
+      {children}
+    </article>
   );
 }
 
-function Slot({ number, entry, pendingClue, letterCount, used }) {
-  const state = pendingClue ? 'pending' : entry ? entry.type : used ? 'used' : 'empty';
+function Leaderboard({ rows, standing, compact }) {
+  const text = standingText(standing);
+
+  // On the win card the board is a reward, not a directory: show the top few
+  // and the player's own row, even when that row is far down the list.
+  let shown = rows;
+  let appended = false; // true only when the player's row was pulled up
+  if (compact && rows.length > 6) {
+    const top = rows.slice(0, 5);
+    const mine = rows.find((r) => r.you);
+    appended = Boolean(mine) && !top.includes(mine);
+    shown = appended ? [...top, mine] : top;
+  }
+
   return (
-    <li className={`slot slot-${state}`}>
-      <span className="slot-num" aria-hidden="true">{number}</span>
-      <div className="slot-body">
-        {pendingClue ? (
-          <Exchange clue={pendingClue} pending letterCount={letterCount} />
-        ) : entry ? (
-          <Exchange clue={entry.clue} entry={entry} letterCount={letterCount} />
-        ) : used ? (
-          <span className="slot-placeholder">Använt försök</span>
-        ) : (
-          <span className="slot-placeholder">Ledigt försök</span>
-        )}
-      </div>
-    </li>
+    <div className={compact ? 'board board-compact' : 'board'}>
+      {text && <p className="standing">{text}</p>}
+      <h2>Topplista idag</h2>
+      {rows.length === 0 ? (
+        <p className="muted">Ingen har klarat dagens ord ännu.</p>
+      ) : (
+        <ol className="leaderboard">
+          {shown.map((row, i) => (
+            <li
+              key={`${row.rank}-${row.name}-${i}`}
+              className={`${row.you ? 'is-you' : ''}${appended && i === shown.length - 1 ? ' after-gap' : ''}`}
+            >
+              <span className="lb-rank">{row.rank}</span>
+              <span className="lb-name">{row.name}</span>
+              <span className="lb-score">{row.score}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
   );
 }
 
@@ -114,7 +132,7 @@ export default function App() {
   const [clue, setClue] = useState('');
   const [pendingClue, setPendingClue] = useState(null);
   const [history, setHistory] = useState([]); // newest first
-  const [notice, setNotice] = useState(null); // free outcomes + errors
+  const [notice, setNotice] = useState(null);
   const [nameInput, setNameInput] = useState('');
   const [practice, setPractice] = useState(null);
   const inputRef = useRef(null);
@@ -136,16 +154,9 @@ export default function App() {
   const outOfAttempts = !practice && state.attemptsLeft <= 0;
   const clueLen = clueLength(clue);
   const tooLong = clueLen > state.maxClueLength;
-  const solved = history.some((h) => h.type === 'correct');
-
-  // Slots are the page's spine: every attempt the player has, in order.
-  // Scoring entries fill them oldest-first; the server's attemptsLeft is
-  // authoritative, so attempts made in an earlier session show as "used"
-  // even though this session has no transcript for them.
-  const scoring = history.filter(takesSlot).slice().reverse();
-  const maxSlots = practice ? Math.max(scoring.length + 1, 1) : state.maxAttempts;
-  const used = practice ? scoring.length : state.maxAttempts - state.attemptsLeft;
-  const offset = Math.max(0, used - scoring.length);
+  const attempts = history.filter(isAttempt);
+  const solved = attempts.some((h) => h.type === 'correct');
+  const canPlay = !outOfAttempts && !busy;
 
   async function submit(e) {
     e.preventDefault();
@@ -167,15 +178,16 @@ export default function App() {
           attemptsLeft: res.attemptsLeft,
           best: res.best,
           leaderboard: res.leaderboard,
+          standing: res.standing ?? s.standing,
         }));
       }
-      // Outcomes that cost nothing never take a slot — they are notices.
+      // Free outcomes never become cards — they are notices by the input.
       if (entry.type === 'rejected') {
-        setNotice({ kind: 'rejected', text: entry.reason, clue: text });
+        setNotice({ kind: 'rejected', text: entry.reason });
+        setClue(text); // let them edit rather than retype
       } else if (entry.type === 'ai_failure') {
-        setNotice({ kind: 'ai_failure', guess: entry.guess, clue: text });
+        setNotice({ kind: 'ai_failure', guess: entry.guess });
       }
-      if (entry.type === 'rejected') setClue(text); // let them edit it
     } catch (err) {
       setNotice({ kind: 'error', text: err.message });
       setClue(text);
@@ -217,6 +229,14 @@ export default function App() {
     }
   }
 
+  const attemptsLabel = practice
+    ? 'Övningsläge — inga försök räknas'
+    : outOfAttempts
+      ? 'Inga försök kvar idag'
+      : solved
+        ? `Går det kortare? ${state.attemptsLeft} försök kvar`
+        : `${state.attemptsLeft} försök kvar`;
+
   return (
     <div className="shell">
       <header>
@@ -226,74 +246,31 @@ export default function App() {
 
       <main className="card">
         <div className="puzzle">
-          <div className="puzzle-head">
-            <span className="label">{practice ? 'Övningsord' : 'Dagens ord'}</span>
-            {!practice && (
-              <span className="attempts-count">
-                {state.attemptsLeft} av {state.maxAttempts} försök kvar
-              </span>
-            )}
-          </div>
-          <LetterRow word={active.word} tone="answer" />
+          <span className="label">{practice ? 'Övningsord' : 'Dagens ord'}</span>
+          <LetterRow word={active.word} tone="answer" size="big" />
           <div className="forbidden">
             <span className="label">Får inte användas</span>
             <span className="chips">
-              {active.forbidden.map((f) => (
-                <span key={f} className="chip">{f}</span>
-              ))}
+              {active.forbidden.map((f) => <span key={f} className="chip">{f}</span>)}
             </span>
           </div>
         </div>
 
-        <ol className="slots" aria-live="polite">
-          {Array.from({ length: maxSlots }, (_, i) => {
-            const entry = i >= offset ? scoring[i - offset] : undefined;
-            const isPending = busy && i === used;
-            return (
-              <Slot
-                key={i}
-                number={i + 1}
-                entry={entry}
-                pendingClue={isPending ? pendingClue : null}
-                letterCount={active.letterCount}
-                used={i < used}
-              />
-            );
-          })}
-        </ol>
-
-        {notice && (
-          <div className={`notice notice-${notice.kind}`} role="status">
-            {notice.kind === 'rejected' && (
-              <>
-                <strong>Otillåten ledtråd.</strong> {notice.text}{' '}
-                <em>Kostade inget försök.</em>
-              </>
-            )}
-            {notice.kind === 'ai_failure' && (
-              <>
-                <strong>AI:n gav inget giltigt svar</strong>
-                {notice.guess ? <> (<s>{notice.guess}</s>)</> : null}.{' '}
-                <em>Kostade inget försök — prova igen.</em>
-              </>
-            )}
-            {notice.kind === 'error' && notice.text}
-          </div>
-        )}
-
+        {/* The input lives at the top: each answer is pushed down beneath it. */}
         <form onSubmit={submit} className="clue-form">
+          <p className={outOfAttempts ? 'attempts attempts-out' : 'attempts'}>{attemptsLabel}</p>
           <div className="input-row">
             <input
               ref={inputRef}
               value={clue}
               onChange={(e) => setClue(e.target.value)}
-              placeholder={outOfAttempts ? 'Inga försök kvar idag' : 'Din ledtråd…'}
-              disabled={busy || outOfAttempts}
+              placeholder={outOfAttempts ? 'Nytt ord imorgon' : 'Din ledtråd…'}
+              disabled={!canPlay}
               autoFocus
               maxLength={60}
               aria-label="Din ledtråd"
             />
-            <button type="submit" disabled={busy || outOfAttempts || !clue.trim() || tooLong}>
+            <button type="submit" disabled={!canPlay || !clue.trim() || tooLong}>
               {busy ? 'Skickar…' : 'Testa'}
             </button>
           </div>
@@ -307,8 +284,40 @@ export default function App() {
           </div>
         </form>
 
-        {solved && !outOfAttempts && <p className="muted note">Klarat! Går det med färre tecken?</p>}
-        {outOfAttempts && <p className="muted note">Nytt ord imorgon.</p>}
+        {notice && (
+          <div className={`notice notice-${notice.kind}`} role="status">
+            {notice.kind === 'rejected' && (
+              <><strong>Otillåten ledtråd.</strong> {notice.text} <em>Kostade inget försök.</em></>
+            )}
+            {notice.kind === 'ai_failure' && (
+              <>
+                <strong>AI:n gav inget giltigt svar</strong>
+                {notice.guess ? <> (<s>{notice.guess}</s>)</> : null}.{' '}
+                <em>Kostade inget försök — prova igen.</em>
+              </>
+            )}
+            {notice.kind === 'error' && notice.text}
+          </div>
+        )}
+
+        <div className="responses" aria-live="polite">
+          {busy && (
+            <ResponseCard pending clue={pendingClue} letterCount={active.letterCount} latest />
+          )}
+          {attempts.map((entry, i) => (
+            <ResponseCard
+              key={attempts.length - i}
+              entry={entry}
+              letterCount={active.letterCount}
+              latest={!busy && i === 0}
+            >
+              {/* The win shows the day's board and where you landed on it. */}
+              {entry.type === 'correct' && !busy && i === 0 && !practice && (
+                <Leaderboard rows={state.leaderboard} standing={state.standing} compact />
+              )}
+            </ResponseCard>
+          ))}
+        </div>
 
         {state.practiceEnabled && (
           <div className="practice-controls">
@@ -325,25 +334,13 @@ export default function App() {
         )}
       </main>
 
-      {!practice && (
+      {/* The standalone board stays for players who haven't solved it yet. */}
+      {!practice && !solved && (
         <section className="card">
-          <h2>Topplista</h2>
           {state.durable === false && (
             <p className="warn">Ingen databas är kopplad — resultaten försvinner när servern startar om.</p>
           )}
-          {state.leaderboard.length === 0 ? (
-            <p className="muted">Ingen har klarat dagens ord ännu.</p>
-          ) : (
-            <ol className="leaderboard">
-              {state.leaderboard.map((row) => (
-                <li key={row.rank}>
-                  <span className="lb-rank">{row.rank}</span>
-                  <span className="lb-name">{row.name}</span>
-                  <span className="lb-score">{row.score}</span>
-                </li>
-              ))}
-            </ol>
-          )}
+          <Leaderboard rows={state.leaderboard} standing={state.standing} />
           <form onSubmit={saveName} className="name-form">
             <input
               value={nameInput}
@@ -353,6 +350,21 @@ export default function App() {
               aria-label="Ditt namn på topplistan"
             />
             <button type="submit" className="ghost" disabled={!nameInput.trim()}>Spara</button>
+          </form>
+        </section>
+      )}
+
+      {!practice && solved && (
+        <section className="card">
+          <form onSubmit={saveName} className="name-form">
+            <input
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              placeholder="Ditt namn på topplistan"
+              maxLength={20}
+              aria-label="Ditt namn på topplistan"
+            />
+            <button type="submit" className="ghost" disabled={!nameInput.trim()}>Spara namn</button>
           </form>
         </section>
       )}
