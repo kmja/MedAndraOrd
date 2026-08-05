@@ -1,8 +1,17 @@
 #!/usr/bin/env node
-// Measures how hard a word actually is, by playing the game against it.
+// Measures how hard a word actually is, by playing the game against it — and
+// says what to ban if it turns out too easy.
 //
-//   GEMINI_API_KEY=... npm run probe -- stövel
-//   GEMINI_API_KEY=... npm run probe -- --bank 20     (20 random bank words)
+//   npm run probe -- stövel                       ett ord ur banken
+//   npm run probe -- stövel vulkan morot          flera
+//   npm run probe -- --new "kikare:lins,titta,långt,glas,fjärran"
+//   npm run probe -- --bank 10                    slumpat urval
+//   npm run probe -- --dry --bank 30              vad skulle det kosta?
+//   npm run probe -- --clues 20 --json ut.json stövel
+//
+// Kräver GEMINI_API_KEY. Lägg den i .env så laddas den härifrån.
+//
+// ---------------------------------------------------------------------------
 //
 // The static audit (review:words) can only find *candidate* routes into a word.
 // It cannot tell you whether a route works, because the guesser is blind: given
@@ -15,7 +24,13 @@
 // blind guesser and all. What comes back is the word's empirical par: the
 // shortest clue that actually solved it.
 //
-// Reading the result:
+// Then it reads the solutions back. Clues that solve the same word tend to
+// share an element ("vinter" in both vinterplagg and vinterskodon), and that
+// shared element is the route. Those are what a forbidden list is for, so they
+// are reported as candidates — with the caveat that banning every route makes a
+// word unsolvable rather than hard. Ban the cheapest one or two, then re-probe.
+//
+// Reading the verdict:
 //   shortest 2-4  — too easy. One cheap clue will dominate its leaderboard.
 //   shortest 5-9  — good. Room to compete below par.
 //   nothing solved — too hard, or the forbidden list is over-tight.
@@ -26,18 +41,95 @@ import { GoogleGenAI } from '@google/genai';
 
 import { WORDS, wordByIndex } from '../server/words.js';
 import { judgeClue } from '../server/game.js';
-import { clueLength, MAX_CLUE_LENGTH } from '../server/util.js';
+import { isSwedishWord } from '../server/dictionary.js';
+import { clueLength, letterCount, normalize, MAX_CLUE_LENGTH } from '../server/util.js';
+
+// ---------------------------------------------------------------------------
+// arguments
+
+const argv = process.argv.slice(2);
+const opts = { clues: 12, dry: false, json: null, bank: 0, words: [], custom: [] };
+
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--dry') opts.dry = true;
+  else if (a === '--clues') opts.clues = Number(argv[++i]);
+  else if (a === '--json') opts.json = argv[++i];
+  else if (a === '--bank') opts.bank = Number(argv[++i] || 10);
+  else if (a === '--new') opts.custom.push(argv[++i]);
+  else if (a.startsWith('--')) fail(`Okänd flagga: ${a}`);
+  else opts.words.push(a);
+}
+
+function fail(msg) {
+  console.error(msg);
+  console.error('\nAnvändning:\n  npm run probe -- <ord...>\n  npm run probe -- --new "ord:spärr1,spärr2,..."\n  npm run probe -- --bank <antal>\nFlaggor: --clues <n>  --dry  --json <fil>');
+  process.exit(2);
+}
+
+/** A candidate word that isn't in the bank yet — the point of vetting one. */
+function parseCustom(spec) {
+  const [word, list = ''] = spec.split(':');
+  const forbidden = list.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!word?.trim()) fail(`Kunde inte läsa --new "${spec}". Format: "ord:spärr1,spärr2"`);
+  return { word: word.trim(), forbidden, letterCount: letterCount(word.trim()), index: -1 };
+}
+
+const targets = [];
+for (const spec of opts.custom) targets.push(parseCustom(spec));
+for (const w of opts.words) {
+  const found = WORDS.find((e) => normalize(e.word) === normalize(w));
+  if (!found) fail(`"${w}" finns inte i banken. Vetta ett nytt ord med --new "${w}:spärr1,spärr2".`);
+  targets.push(found);
+}
+if (opts.bank > 0) {
+  const idx = new Set();
+  while (idx.size < Math.min(opts.bank, WORDS.length)) idx.add(Math.floor(Math.random() * WORDS.length));
+  for (const i of idx) targets.push(wordByIndex(i));
+}
+if (!targets.length) fail('Ange minst ett ord, --new eller --bank.');
+
+// ---------------------------------------------------------------------------
+// cost
+
+// One proposal call per word, then one judgeClue per candidate clue. A wrong
+// length or a confabulated guess re-prompts, so the pipeline can spend up to
+// MAX_GUESS_ROUNDS on a single clue — the range, not the floor, is the honest
+// number to plan against.
+function estimate(n) {
+  const proposals = n;
+  const judged = n * opts.clues;
+  return { proposals, judged, min: proposals + judged, max: proposals + judged * 4 };
+}
+
+if (opts.dry) {
+  const e = estimate(targets.length);
+  console.log(`TORRKÖRNING — inga anrop görs.\n`);
+  console.log(`  ${targets.length} ord × ${opts.clues} ledtrådar`);
+  console.log(`  ${e.proposals} förslagsanrop + ${e.judged} bedömningsanrop`);
+  console.log(`  = ${e.min} anrop i bästa fall, upp till ${e.max} om AI:n måste tänka om.`);
+  console.log(`\n  Varje anrop är litet (~300 tecken in, ~30 ut). Modell: ${process.env.ORDKNAPP_MODEL || 'gemini-3.1-flash-lite'}.`);
+  console.log(`\nOrd som skulle testas:`);
+  for (const t of targets) console.log(`  ${t.word.padEnd(14)} spärrat: ${t.forbidden.join(', ') || '(inget)'}`);
+  process.exit(0);
+}
+
+// Load .env so the key doesn't have to be pasted on every run.
+try { process.loadEnvFile('.env'); } catch { /* no .env — fall back to the environment */ }
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 if (!apiKey) {
-  console.error('Sätt GEMINI_API_KEY (eller GOOGLE_API_KEY) först.');
+  console.error('Sätt GEMINI_API_KEY — i .env eller i miljön:\n  GEMINI_API_KEY=... npm run probe -- stövel');
+  console.error('\nKör med --dry för att se omfattningen utan nyckel.');
   process.exit(2);
 }
 const ai = new GoogleGenAI({ apiKey });
 const MODEL = process.env.ORDKNAPP_MODEL || 'gemini-3.1-flash-lite';
-const CANDIDATES = 12;
 
-/** The adversarial player: sees everything, tries to win in as few characters as possible. */
+// ---------------------------------------------------------------------------
+// the adversarial player: sees everything, tries to win in as few characters
+// as possible
+
 async function proposeClues({ word, forbidden }) {
   const system = `Du är en mycket skicklig spelare i ordspelet Ordknapp. Du ska skriva ledtrådar som får en BLIND AI att gissa ett hemligt svenskt ord. AI:n ser bara din ledtråd och ordets antal bokstäver.
 
@@ -45,15 +137,15 @@ Poängen är antalet tecken — färre är bättre. Sikta så kort du kan.
 
 Regler: svenska, inte målordet eller dess böjningar, inte de spärrade orden, ingen översättning, inga stavnings- eller rimtrick, och inget ordled som bara ska fyllas i till en sammansättning. Kända exempel (egennamn) är tillåtna.
 
-Svara ENDAST med JSON: {"clues": ["...", "..."]} med ${CANDIDATES} förslag, sorterade kortast först. Blanda strategier: beskrivning, funktion, kända exempel, sammansättningar som beskriver.`;
+Svara ENDAST med JSON: {"clues": ["...", "..."]} med ${opts.clues} förslag, sorterade kortast först. Blanda strategier: beskrivning, funktion, kända exempel, sammansättningar som beskriver.`;
 
-  const user = `Hemligt ord: ${word} (${[...word].length} bokstäver)
-Spärrade ord: ${forbidden.join(', ')}`;
+  const user = `Hemligt ord: ${word} (${letterCount(word)} bokstäver)
+Spärrade ord: ${forbidden.join(', ') || '(inga)'}`;
 
   const res = await ai.models.generateContent({
     model: MODEL,
     contents: [{ role: 'user', parts: [{ text: user }] }],
-    config: { systemInstruction: system, maxOutputTokens: 600, temperature: 1, responseMimeType: 'application/json' },
+    config: { systemInstruction: system, maxOutputTokens: 800, temperature: 1, responseMimeType: 'application/json' },
   });
   const text = res.text ?? '';
   const m = text.match(/\{[\s\S]*\}/);
@@ -66,55 +158,129 @@ Spärrade ord: ${forbidden.join(', ')}`;
   }
 }
 
+// ---------------------------------------------------------------------------
+// route analysis: what did the winning clues have in common?
+
+/**
+ * Every element of a clue that could stand as a clue of its own: the whole
+ * token, plus both halves of any split where BOTH halves are real words.
+ * "vinterplagg" yields vinter and plagg — the route is the shared element,
+ * not the shared clue.
+ *
+ * Requiring both halves is what keeps this readable. Accepting any real word
+ * found anywhere inside a token instead yields vin, agg and odon out of
+ * vinterskodon: all real words, none of them a way into the answer. Swedish
+ * also glues elements with a linking -s- (vinter|s|sko), so a head ending in
+ * -s counts if the bare form is a word.
+ */
+function elementsOf(clue) {
+  const out = new Set();
+  for (const raw of normalize(clue).split(/[\s-]+/)) {
+    const token = raw.replace(/[^\p{L}]/gu, '');
+    if (token.length < 3) continue;
+    out.add(token);
+    for (let n = 3; n <= token.length - 3; n++) {
+      const head = token.slice(0, n);
+      const tail = token.slice(n);
+      if (!isSwedishWord(tail)) continue;
+      const bare = head.endsWith('s') ? head.slice(0, -1) : null;
+      const realHead = isSwedishWord(head)
+        ? head
+        : (bare && bare.length >= 3 && isSwedishWord(bare) ? bare : null);
+      if (realHead) { out.add(realHead); out.add(tail); }
+    }
+  }
+  return out;
+}
+
+/** Elements shared by two or more solving clues, cheapest route first. */
+function routes(solved, forbidden) {
+  const seen = new Map(); // element -> { count, shortest }
+  for (const r of solved) {
+    for (const el of elementsOf(r.clue)) {
+      const hit = seen.get(el) ?? { count: 0, shortest: Infinity };
+      hit.count += 1;
+      hit.shortest = Math.min(hit.shortest, r.len);
+      seen.set(el, hit);
+    }
+  }
+  const blocked = (el) => forbidden.some((f) => el.includes(normalize(f)) || normalize(f).includes(el));
+  return [...seen.entries()]
+    .filter(([el, v]) => v.count >= 2 && !blocked(el))
+    .map(([el, v]) => ({ element: el, ...v }))
+    // Cheapest route first: the element that produced the shortest solve is the
+    // one that decides the leaderboard.
+    .sort((a, b) => a.shortest - b.shortest || b.count - a.count)
+    .slice(0, 6);
+}
+
+// ---------------------------------------------------------------------------
+
 async function probe(entry) {
   const clues = await proposeClues(entry);
   const results = [];
   for (const clue of clues) {
     const verdict = await judgeClue({ clue, target: entry.word, forbidden: entry.forbidden });
-    results.push({ clue, len: clueLength(clue), type: verdict.type, guess: verdict.guess });
+    results.push({ clue, len: clueLength(clue), type: verdict.type, guess: verdict.guess, reason: verdict.reason });
   }
   const solved = results.filter((r) => r.type === 'correct').sort((a, b) => a.len - b.len);
-  return { entry, results, solved, shortest: solved[0] ?? null };
-}
-
-const args = process.argv.slice(2);
-let targets = [];
-if (args[0] === '--bank') {
-  const n = Number(args[1] || 10);
-  const idx = new Set();
-  while (idx.size < Math.min(n, WORDS.length)) idx.add(Math.floor(Math.random() * WORDS.length));
-  targets = [...idx].map((i) => wordByIndex(i));
-} else if (args.length) {
-  targets = args.map((w) => WORDS.find((e) => e.word === w)).filter(Boolean);
-  if (!targets.length) {
-    console.error(`Hittade inte ordet i banken. Kända ord: ${WORDS.length} st.`);
-    process.exit(2);
-  }
-} else {
-  console.error('Ange ett ord ur banken, eller --bank <antal>.');
-  process.exit(2);
-}
-
-console.log(`Modell: ${MODEL} · ${CANDIDATES} kandidater per ord\n`);
-const summary = [];
-for (const entry of targets) {
-  const { results, solved, shortest } = await probe(entry);
   const rate = results.length ? Math.round((solved.length / results.length) * 100) : 0;
-  const verdict = !shortest ? 'FÖR SVÅR' : shortest.len <= 4 ? 'FÖR LÄTT' : rate >= 90 ? 'FÖR LÄTT (allt löser)' : 'BRA';
-  summary.push({ word: entry.word, shortest: shortest?.len ?? null, rate, verdict });
+  const shortest = solved[0] ?? null;
+  const verdict = !shortest
+    ? 'FÖR SVÅR'
+    : shortest.len <= 4 ? 'FÖR LÄTT'
+    : rate >= 90 ? 'FÖR LÄTT (allt löser)'
+    : 'BRA';
+  return { entry, results, solved, shortest, rate, verdict, routes: routes(solved, entry.forbidden) };
+}
 
-  console.log(`${entry.word.toUpperCase()}  (spärrat: ${entry.forbidden.join(', ')})`);
-  console.log(`  ${solved.length}/${results.length} löste ordet · kortaste lyckade: ${shortest ? `"${shortest.clue}" (${shortest.len})` : '—'} · ${verdict}`);
-  for (const r of results.slice(0, 8)) {
-    const mark = r.type === 'correct' ? '✓' : r.type === 'rejected' ? '⊘' : '·';
-    console.log(`    ${mark} ${String(r.len).padStart(2)}  ${r.clue.padEnd(24)} ${r.type === 'correct' ? '' : `→ ${r.guess ?? r.type}`}`);
+const e = estimate(targets.length);
+console.log(`Modell: ${MODEL} · ${targets.length} ord × ${opts.clues} ledtrådar · ~${e.min}–${e.max} anrop\n`);
+
+const report = [];
+for (const entry of targets) {
+  const r = await probe(entry);
+  report.push({
+    word: entry.word,
+    forbidden: entry.forbidden,
+    letters: letterCount(entry.word),
+    inBank: entry.index >= 0,
+    shortest: r.shortest?.len ?? null,
+    rate: r.rate,
+    verdict: r.verdict,
+    solved: r.solved.map((s) => ({ clue: s.clue, len: s.len })),
+    rejected: r.results.filter((x) => x.type === 'rejected').map((x) => ({ clue: x.clue, reason: x.reason })),
+    routes: r.routes,
+  });
+
+  console.log(`${entry.word.toUpperCase()} (${letterCount(entry.word)} bokstäver)${entry.index < 0 ? '  [utanför banken]' : ''}`);
+  console.log(`  spärrat: ${entry.forbidden.join(', ') || '(inget)'}`);
+  console.log(`  ${r.solved.length}/${r.results.length} löste ordet · kortaste ${r.shortest ? `"${r.shortest.clue}" (${r.shortest.len})` : '—'} · ${r.verdict}`);
+  console.log();
+  for (const x of r.results) {
+    const mark = x.type === 'correct' ? '✓' : x.type === 'rejected' ? '⊘' : '·';
+    const tail = x.type === 'correct' ? '' : x.type === 'rejected' ? `⊘ ${x.reason ?? ''}` : `→ ${x.guess ?? x.type}`;
+    console.log(`    ${mark} ${String(x.len).padStart(2)}  ${x.clue.padEnd(22)} ${tail}`);
+  }
+  if (r.routes.length) {
+    console.log(`\n  VÄGAR IN (led som återkommer i lösningarna — kandidater till spärrlistan)`);
+    for (const rt of r.routes) {
+      console.log(`    ${rt.element.padEnd(16)} ${rt.count} lösningar, kortaste ${rt.shortest} tecken`);
+    }
+    console.log(`    Spärra den billigaste vägen först och kör om — spärrar man alla blir ordet olösligt, inte svårt.`);
   }
   console.log();
 }
 
-console.log('SAMMANFATTNING');
-for (const s of summary) {
+console.log('SAMMANFATTNING\n');
+for (const s of report) {
   console.log(`  ${s.word.padEnd(14)} kortaste ${String(s.shortest ?? '-').padStart(2)}  lösningsgrad ${String(s.rate).padStart(3)}%  ${s.verdict}`);
 }
-const bad = summary.filter((s) => s.verdict !== 'BRA');
-console.log(`\n${bad.length}/${summary.length} ord behöver ses över.`);
+const bad = report.filter((s) => s.verdict !== 'BRA');
+console.log(`\n${bad.length}/${report.length} ord behöver ses över.`);
+
+if (opts.json) {
+  const fs = await import('node:fs');
+  fs.writeFileSync(opts.json, JSON.stringify(report, null, 2));
+  console.log(`\nSparat till ${opts.json}`);
+}

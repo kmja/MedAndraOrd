@@ -246,10 +246,29 @@ tolv kortaste ledtrådar; var och en körs sedan genom hela den riktiga pipeline
 med den blinda gissaren. Resultatet är ordets **empiriska par** — den kortaste
 ledtråd som faktiskt löste det.
 
+Lägg nyckeln i `.env` en gång, sedan räcker ordet:
+
 ```
-GEMINI_API_KEY=... npm run probe -- stövel
-GEMINI_API_KEY=... npm run probe -- --bank 20
+npm run probe -- stövel                 ett ord ur banken
+npm run probe -- stövel vulkan morot    flera på en gång
+npm run probe -- --bank 20              slumpat urval
+npm run probe -- --dry --bank 20        vad skulle det kosta? (inga anrop)
 ```
+
+Ett ord som *inte* finns i banken än kan vettas innan det läggs in — det är
+poängen med att kunna skriva spärrlistan efteråt:
+
+```
+npm run probe -- --new "kikare:lins,titta,långt,glas,fjärran"
+npm run probe -- --new "kikare:"        utan spärrlista, för att se vad som vinner
+```
+
+Fler flaggor: `--clues <n>` (antal kandidatledtrådar, default 12) och
+`--json <fil>` (spara utfallet, så flera körningar kan jämföras).
+
+Kör alltid `--dry` först på ett större urval. Den skriver ut hur många anrop
+körningen blir — ett förslagsanrop per ord plus ett bedömningsanrop per ledtråd,
+med utrymme för omtag när AI:n svarar med fel längd.
 
 Så här läser man utfallet:
 
@@ -260,13 +279,23 @@ Så här läser man utfallet:
 | inget löser | **För svår**, eller så är spärrlistan för hårt dragen |
 | 90 %+ löser | **För lätt på annat sätt** — allt fungerar, så poängen blir bara vem som skriver kortast |
 
+Under varje ord skriver den också ut **vägar in**: de led som återkommer i de
+lösningar som faktiskt gick igenom, sorterade med den billigaste först. Löses
+ordet av både *vinterplagg* och *snöplagg* är det `plagg` som är vägen, inte
+ledtråden — och `plagg` är då kandidaten till spärrlistan. Led som redan är
+spärrade filtreras bort, så det som listas är arbete som återstår.
+
+Spärra en väg i taget och kör om. Spärrar man alla blir ordet olösligt, inte
+svårt, och ett olösligt ord är en sämre dag än ett lätt.
+
 **Arbetsgången för ett nytt ord**
 
 1. Välj ett konkret substantiv, helst 5–6 bokstäver. Abstrakta ord (*lycka*,
    *frihet*) ger vaga ledtrådar och godtyckliga gissningar.
-2. Skriv spärrlistan sist, inte först — kör `probe` **utan** spärrlista och se
-   vilka ledtrådar modellen faktiskt vinner med. Spärra dem. Det är mer
-   träffsäkert än att gissa vilka de uppenbara orden är.
+2. Skriv spärrlistan sist, inte först — kör `probe -- --new "ordet:"` **utan**
+   spärrlista och se vilka ledtrådar modellen faktiskt vinner med. Listan över
+   vägar in är då förslaget till spärrlista. Det är mer träffsäkert än att gissa
+   vilka de uppenbara orden är.
 3. Kör `review:words` och titta på de korta oblockerade sammansättningsleden.
    Spärra dem som också är uppenbara *beskrivningar*; låt de andra vara.
 4. Kör `probe` igen. Sikta på kortaste lösning 5–9 och lösningsgrad 40–80 %.
