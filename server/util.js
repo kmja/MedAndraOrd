@@ -1,7 +1,16 @@
 // Pure helpers — every rule that can be checked deterministically lives here,
 // not in a prompt. (Core principle: prompt for judgment, code for constraints.)
 
-export const MAX_CLUE_LENGTH = 10;
+// Two numbers, doing different jobs.
+//
+// PAR is the target: the length worth aiming for, and the game's identity.
+// MAX_CLUE_LENGTH is only a hard cap — it exists to bound cost and stop
+// someone pasting an essay, not to create difficulty. Golf scoring already
+// supplies the pressure to be short, so the cap can be generous without
+// making the leaderboard soft: a 24-character solve is a solve, and it will
+// sit at the bottom of the board where it belongs.
+export const PAR_CLUE_LENGTH = 10;
+export const MAX_CLUE_LENGTH = 25;
 
 /** Lowercase + unicode-normalize + collapse whitespace. Keeps å/ä/ö intact. */
 export function normalize(s) {

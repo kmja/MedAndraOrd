@@ -184,3 +184,56 @@ test('KvStore.standing counts strictly better scores', async () => {
   const zcount = calls.find((c) => c.command[0] === 'ZCOUNT');
   assert.equal(zcount.command[3], '(6', 'must exclude equal scores, or ties would outrank each other');
 });
+
+
+// ---------------------------------------------------------------------------
+// the winning clues are the answer key
+// ---------------------------------------------------------------------------
+
+test('leaderboard withholds clues unless the viewer is allowed to see them', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4, 'kaninmat');
+
+  const locked = await s.leaderboard('d', 'someone');
+  assert.ok(!('clue' in locked[0]), 'a clue must not be sent to a player still guessing');
+
+  const open = await s.leaderboard('d', 'someone', true);
+  assert.equal(open[0].clue, 'kaninmat');
+});
+
+test('the stored clue follows the score it earned', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 8, 'lång ledtråd');
+  await s.recordBest('d', 'a', 5, 'kort');
+  assert.equal((await s.leaderboard('d', 'a', true))[0].clue, 'kort');
+
+  // A worse later attempt must not overwrite the record or its clue.
+  await s.recordBest('d', 'a', 9, 'sämre');
+  const row = (await s.leaderboard('d', 'a', true))[0];
+  assert.equal(row.score, 5);
+  assert.equal(row.clue, 'kort');
+});
+
+test('dayStats averages the field', async () => {
+  const s = new MemoryStore();
+  assert.deepEqual(await s.dayStats('d'), { solvers: 0, average: null });
+  await s.recordBest('d', 'a', 4, 'x');
+  await s.recordBest('d', 'b', 6, 'y');
+  assert.deepEqual(await s.dayStats('d'), { solvers: 2, average: 5 });
+});
+
+test('KvStore only writes the clue when the score actually improved', async () => {
+  // Otherwise a worse later attempt would replace the clue on the record.
+  const { store, calls } = stubKv((c) => {
+    if (c[0] === 'ZSCORE') return '5';
+    return 1;
+  });
+  await store.recordBest('d', 'pid', 9, 'sämre');
+  assert.equal(calls.some((c) => c.command[0] === 'HSET'), false);
+
+  const second = stubKv((c) => (c[0] === 'ZSCORE' ? '5' : 1));
+  await second.store.recordBest('d', 'pid', 5, 'kort');
+  const hset = second.calls.find((c) => c.command[0] === 'HSET');
+  assert.ok(hset, 'expected the clue to be stored');
+  assert.equal(hset.command[3], 'kort');
+});

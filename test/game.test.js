@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
-  sanitizeName, dayNumber, MAX_CLUE_LENGTH,
+  sanitizeName, dayNumber, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
 import {
@@ -40,8 +40,11 @@ test('checkClueCode: valid clue passes', () => {
   assert.equal(checkClueCode('kaninmat', 'morot', ['grönsak', 'orange']), null);
 });
 
-test('clue limit is a tight 10 characters', () => {
-  assert.equal(MAX_CLUE_LENGTH, 10);
+test('par is the tight target; the cap is only a backstop', () => {
+  // Golf scoring supplies the pressure to be short, so the cap exists to bound
+  // cost and stop pasted essays — not to gate difficulty.
+  assert.equal(PAR_CLUE_LENGTH, 10);
+  assert.ok(MAX_CLUE_LENGTH > PAR_CLUE_LENGTH, 'the cap must leave room above par');
 });
 
 test('checkClueCode rejects clues over the limit but allows exactly the limit', () => {
@@ -50,9 +53,17 @@ test('checkClueCode rejects clues over the limit but allows exactly the limit', 
 });
 
 test('the limit counts unicode chars, so å/ä/ö cost the same as a/o', () => {
-  assert.equal(checkClueCode('påskägget', 'morot', []), null); // 9 chars
-  assert.equal(checkClueCode('trädgården', 'morot', []), null); // exactly 10
-  assert.equal(checkClueCode('trädgårdar!', 'morot', []).code, 'too_long'); // 11
+  const atCap = 'å'.repeat(MAX_CLUE_LENGTH);
+  assert.equal(checkClueCode(atCap, 'morot', []), null);
+  assert.equal(checkClueCode(atCap + 'å', 'morot', []).code, 'too_long');
+});
+
+test('a clue above par is legal — it just scores worse', async () => {
+  const ai = mockAi({ guesses: ['morot'] });
+  const long = 'a'.repeat(PAR_CLUE_LENGTH + 5);
+  const v = await judgeClue({ clue: long, target: 'morot', forbidden: [], ai });
+  assert.equal(v.type, 'correct');
+  assert.equal(v.score, PAR_CLUE_LENGTH + 5);
 });
 
 test('checkClueCode rejects emoji before any API call', () => {

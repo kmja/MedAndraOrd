@@ -1,8 +1,8 @@
 # Ordknapp
 
 Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
-spärrade ord, och skriver en ledtråd (**max 10 tecken**) som ska få en AI att
-gissa ordet. Poängen är antalet tecken i den kortaste lyckade ledtråden —
+spärrade ord, och skriver en ledtråd (**par 10 tecken**, hårt tak 25) som ska
+få en AI att gissa ordet. Poängen är antalet tecken i den kortaste lyckade ledtråden —
 golfregler, lägre är bättre — med en topplista per ord. **Mellanslag räknas
 inte**, varken mot gränsen eller i poängen, så läsbar formatering är gratis och
 ingen tvingas skriva ihopskrivna ledtrådar för att spara ett tecken.
@@ -91,11 +91,30 @@ skulle den frysa ledtråden som permanent misslyckad, och en ny inskickning
 skulle aldrig kunna få ett nytt försök till en riktig gissning.
 
 Deterministiska kontroller i kod (`server/util.js`):
-- Max 10 tecken, mellanslag oräknade (`MAX_CLUE_LENGTH` + `clueLength()` i
+- Högst 25 tecken, mellanslag oräknade (`MAX_CLUE_LENGTH` + `clueLength()` i
   `server/util.js` — enda stället; UI:t hämtar gränsen från `/api/state` och
   speglar räkningen enbart för att visa siffran).
 - Emoji avvisas via Unicode property-regex före alla API-anrop.
 - Målord/förbjudna ord som (normaliserad) delsträng i ledtråden.
+
+### Par och tak
+
+Två tal, med olika jobb:
+
+- **`PAR_CLUE_LENGTH` = 10** är målet — siffran spelet handlar om, utmärkt på
+  längdmätaren under inmatningen.
+- **`MAX_CLUE_LENGTH` = 25** är bara ett tak. Det finns för att begränsa kostnad
+  och hindra inklistrade uppsatser, inte för att skapa svårighet.
+
+Golfpoängen ger redan pressen att vara kort, så taket kan vara generöst utan att
+göra topplistan mjuk: en lösning på 24 tecken *är* en lösning, och den hamnar
+längst ner på listan där den hör hemma. Ett hårt tak på 10 gjorde i praktiken
+vissa ord olösbara — vilket är en sämre upplevelse än en lång ledtråd med dåligt
+resultat.
+
+Mätaren visar tre saker: hur långt du kommit, **par**, och **dagens snitt** bland
+dem som klarat ordet (`dayAverage` från `/api/state`). Du tävlar mot fältet och
+målet, inte mot taket.
 
 ### Rättvisa & kostnad
 
@@ -107,6 +126,11 @@ Deterministiska kontroller i kod (`server/util.js`):
 - **5 försök per dag** per spelare (anonym httpOnly-cookie).
 - Rate limiting per spelare på ledtråds-endpointen.
 - Namn på topplistan modereras i kod (sanering + blocklista).
+- **Vinnarledtrådarna är facit.** Topplistan visar ledtråden som det viktiga och
+  namnet som fotnot — men servern skickar dem först när spelaren är klar för
+  dagen (löst ordet eller slut på försök). Annars skulle vem som helst kunna
+  kopiera den bästa ledtråden. Gatingen sitter i `handlers.js` (`reveal`), inte i
+  klienten.
 
 ### Ordlistan
 

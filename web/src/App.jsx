@@ -36,6 +36,38 @@ function standingText(standing) {
   return `Du är bland de ${pct} % bästa idag`;
 }
 
+/**
+ * The length meter: one segment per character, with the day's average and par
+ * marked on it. The point is that you are racing the field and the target,
+ * not the hard cap — the cap is just the end of the track.
+ */
+function LengthMeter({ length, max, par, average }) {
+  const pctOf = (n) => `${Math.min(100, (n / max) * 100)}%`;
+  const over = length > max;
+  return (
+    <div className="meter" aria-hidden="true">
+      <div className={over ? 'meter-track is-over' : 'meter-track'}>
+        {Array.from({ length: max }, (_, i) => (
+          <span
+            key={i}
+            className={`seg${i < length ? ' on' : ''}${i + 1 === par ? ' at-par' : ''}`}
+          />
+        ))}
+        {par > 0 && par <= max && (
+          <span className="mark mark-par" style={{ left: pctOf(par) }}>
+            <b>par {par}</b>
+          </span>
+        )}
+        {average != null && average <= max && (
+          <span className="mark mark-avg" style={{ left: pctOf(average) }}>
+            <b>snitt {Math.round(average)}</b>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LetterRow({ word, tone = 'answer', length, size }) {
   const letters = word ? chars(word.toUpperCase()) : Array.from({ length: length ?? 0 }, () => '');
   return (
@@ -116,11 +148,22 @@ function Leaderboard({ rows, standing, compact }) {
               className={`${row.you ? 'is-you' : ''}${appended && i === shown.length - 1 ? ' after-gap' : ''}`}
             >
               <span className="lb-rank">{row.rank}</span>
-              <span className="lb-name">{row.name}</span>
+              <span className="lb-main">
+                {/* The clue is the interesting part — how they did it. */}
+                {'clue' in row ? (
+                  <span className="lb-clue">{row.clue || <em className="muted">(okänd)</em>}</span>
+                ) : (
+                  <span className="lb-clue lb-hidden">••••••</span>
+                )}
+                <span className="lb-by">{row.name}</span>
+              </span>
               <span className="lb-score">{row.score}</span>
             </li>
           ))}
         </ol>
+      )}
+      {rows.length > 0 && !('clue' in rows[0]) && (
+        <p className="lb-locked">Ledtrådarna visas när du klarat ordet — eller när dina försök är slut.</p>
       )}
     </div>
   );
@@ -179,6 +222,8 @@ export default function App() {
           best: res.best,
           leaderboard: res.leaderboard,
           standing: res.standing ?? s.standing,
+          dayAverage: res.dayAverage ?? s.dayAverage,
+          solvers: res.solvers ?? s.solvers,
         }));
       }
       // Free outcomes never become cards — they are notices by the input.
@@ -276,12 +321,18 @@ export default function App() {
           </div>
           <div className="meta-row">
             <span className={tooLong ? 'counter over' : 'counter'}>
-              {clueLen} / {state.maxClueLength}
+              <strong>{clueLen}</strong> / {state.maxClueLength} tecken
             </span>
             {!practice && state.best != null && (
-              <span className="best">Bäst idag: {state.best} tecken</span>
+              <span className="best">Bäst idag: {state.best}</span>
             )}
           </div>
+          <LengthMeter
+            length={clueLen}
+            max={state.maxClueLength}
+            par={state.par}
+            average={practice ? null : state.dayAverage}
+          />
         </form>
 
         {notice && (
@@ -373,12 +424,17 @@ export default function App() {
         <details>
           <summary>Regler</summary>
           <ul>
-            <li>Högst {state.maxClueLength} tecken. Mellanslag räknas inte.</li>
+            <li>
+              Sikta på <strong>par {state.par} tecken</strong>. Längre ledtrådar är tillåtna
+              upp till {state.maxClueLength} tecken — de räknas fullt ut, men hamnar längre
+              ner på topplistan. Mellanslag räknas inte.
+            </li>
             <li>Svenska ord. Inga förkortningar eller bokstaveringstrick.</li>
             <li>Inte ordet självt, dess böjningar eller de spärrade orden.</li>
             <li>Inga översättningar av ordet till andra språk.</li>
             <li>Otillåtna ledtrådar och AI-missar kostar inget försök.</li>
             <li>Poäng = antal tecken i din kortaste lyckade ledtråd. Lägre är bättre.</li>
+            <li>Andras ledtrådar visas först när du klarat ordet eller gjort slut på försöken.</li>
           </ul>
         </details>
         <p className="fineprint">AI:n ser bara din ledtråd och hur många bokstäver ordet har — aldrig ordet.</p>

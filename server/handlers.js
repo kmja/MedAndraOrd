@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { getStore } from './store.js';
 import { wordForDate, wordByIndex, randomWord, WORDS } from './words.js';
 import { judgeClue, costsAttempt, isCacheableVerdict, AiUnavailableError, MAX_ATTEMPTS } from './game.js';
-import { normalize, sanitizeName, todayInStockholm, MAX_CLUE_LENGTH } from './util.js';
+import { normalize, sanitizeName, todayInStockholm, MAX_CLUE_LENGTH, PAR_CLUE_LENGTH } from './util.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
 // both Express and Vercel functions provide. Keeping them here means there is
@@ -83,13 +83,17 @@ export async function stateHandler(req, res) {
   const date = todayInStockholm();
   const { word, forbidden, letterCount } = wordForDate(date);
 
-  const [attempts, best, name, leaderboard, standing] = await Promise.all([
+  const [attempts, best, name, standing, dayStats] = await Promise.all([
     store.getAttempts(date, pid),
     store.getBest(date, pid),
     store.getName(pid),
-    store.leaderboard(date, pid),
     store.standing(date, pid),
+    store.dayStats(date),
   ]);
+  // The winning clues are the answer key. Only players who are done for the
+  // day — solved it, or out of attempts — get to see them.
+  const reveal = best != null || attempts >= MAX_ATTEMPTS;
+  const leaderboard = await store.leaderboard(date, pid, reveal);
 
   send(res, 200, {
     date,
@@ -97,12 +101,15 @@ export async function stateHandler(req, res) {
     forbidden,
     letterCount,
     maxClueLength: MAX_CLUE_LENGTH,
+    par: PAR_CLUE_LENGTH,
     maxAttempts: MAX_ATTEMPTS,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
     best,
     name,
     leaderboard,
     standing,
+    dayAverage: dayStats.average,
+    solvers: dayStats.solvers,
     practiceEnabled: PRACTICE_ENABLED,
     bankSize: WORDS.length,
     durable: store.durable,
@@ -119,6 +126,7 @@ export async function randomHandler(req, res) {
     forbidden: entry.forbidden,
     letterCount: entry.letterCount,
     maxClueLength: MAX_CLUE_LENGTH,
+    par: PAR_CLUE_LENGTH,
   });
 }
 
@@ -197,17 +205,26 @@ export async function clueHandler(req, res) {
   if (costsAttempt(verdict)) {
     newAttempts = await store.incrAttempts(date, pid);
     if (verdict.type === 'correct') {
-      best = await store.recordBest(date, pid, verdict.score);
+      best = await store.recordBest(date, pid, verdict.score, clue);
     }
   }
+
+  const reveal = best != null || newAttempts >= MAX_ATTEMPTS;
+  const [leaderboard, standing, dayStats] = await Promise.all([
+    store.leaderboard(date, pid, reveal),
+    store.standing(date, pid),
+    store.dayStats(date),
+  ]);
 
   send(res, 200, {
     result: verdict,
     cached,
     attemptsLeft: Math.max(0, MAX_ATTEMPTS - newAttempts),
     best,
-    leaderboard: await store.leaderboard(date, pid),
-    standing: await store.standing(date, pid),
+    leaderboard,
+    standing,
+    dayAverage: dayStats.average,
+    solvers: dayStats.solvers,
   });
 }
 

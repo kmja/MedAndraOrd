@@ -32,7 +32,8 @@ test('api/state returns today\'s puzzle and issues a player cookie', async () =>
   assert.equal(res.statusCode, 200);
   assert.ok(res.body.word, 'expected a word');
   assert.equal(res.body.forbidden.length, 5);
-  assert.equal(res.body.maxClueLength, 10);
+  assert.equal(res.body.par, 10);
+  assert.ok(res.body.maxClueLength > res.body.par);
   assert.equal(res.body.attemptsLeft, 5);
 
   const cookie = res.headers['set-cookie'];

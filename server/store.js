@@ -33,7 +33,7 @@ class MemoryStore {
   constructor() {
     this.names = new Map();
     this.attempts = new Map(); // `${date}:${pid}` -> count
-    this.bests = new Map(); // `${date}` -> Map(pid -> score)
+    this.bests = new Map(); // `${date}` -> Map(pid -> { score, clue })
     this.clues = new Map(); // `${date}:${clue}` -> verdict
     this.durable = false;
   }
@@ -57,15 +57,15 @@ class MemoryStore {
   }
 
   async getBest(date, pid) {
-    return this.bests.get(date)?.get(pid) ?? null;
+    return this.bests.get(date)?.get(pid)?.score ?? null;
   }
 
-  async recordBest(date, pid, score) {
+  async recordBest(date, pid, score, clue) {
     if (!this.bests.has(date)) this.bests.set(date, new Map());
     const day = this.bests.get(date);
     const prev = day.get(pid);
-    if (prev == null || score < prev) day.set(pid, score);
-    return day.get(pid);
+    if (prev == null || score < prev.score) day.set(pid, { score, clue });
+    return day.get(pid).score;
   }
 
   async getName(pid) {
@@ -76,12 +76,24 @@ class MemoryStore {
     this.names.set(pid, name);
   }
 
-  async leaderboard(date, viewerPid) {
+  /**
+   * `reveal` gates the winning clues. They are the answer key: anyone who
+   * hasn't finished could simply copy the best one, so the server omits them
+   * rather than trusting the client to hide them.
+   */
+  async leaderboard(date, viewerPid, reveal = false) {
     const day = this.bests.get(date);
     if (!day) return [];
-    const rows = [...day.entries()].sort((a, b) => a[1] - b[1]).slice(0, LEADERBOARD_LIMIT);
+    const rows = [...day.entries()]
+      .sort((a, b) => a[1].score - b[1].score)
+      .slice(0, LEADERBOARD_LIMIT);
     return withRanks(
-      rows.map(([pid, score]) => ({ score, name: this.names.get(pid) || 'Anonym', you: pid === viewerPid })),
+      rows.map(([pid, best]) => ({
+        score: best.score,
+        name: this.names.get(pid) || 'Anonym',
+        you: pid === viewerPid,
+        ...(reveal ? { clue: best.clue ?? null } : {}),
+      })),
     );
   }
 
@@ -96,8 +108,17 @@ class MemoryStore {
     const mine = day?.get(pid);
     if (mine == null) return null;
     let better = 0;
-    for (const score of day.values()) if (score < mine) better++;
+    for (const best of day.values()) if (best.score < mine.score) better++;
     return { rank: better + 1, total: day.size };
+  }
+
+  /** Aggregates for the day, used to mark the average on the length meter. */
+  async dayStats(date) {
+    const day = this.bests.get(date);
+    if (!day || day.size === 0) return { solvers: 0, average: null };
+    let sum = 0;
+    for (const best of day.values()) sum += best.score;
+    return { solvers: day.size, average: sum / day.size };
   }
 }
 
@@ -212,12 +233,20 @@ class KvStore {
     return s == null ? null : Number(s);
   }
 
-  async recordBest(date, pid, score) {
+  async recordBest(date, pid, score, clue) {
     const key = `best:${date}`;
     // LT: only overwrite when the new score is lower. Golf — lower is better.
     await this._cmd('ZADD', key, 'LT', String(score), pid);
     await this._expire(key);
-    return this.getBest(date, pid);
+    const now = await this.getBest(date, pid);
+    // Keep the clue in step with the score it belongs to: only write it when
+    // this submission is the one that now holds the record.
+    if (now === score && clue != null) {
+      const clueKey = `bestclue:${date}`;
+      await this._cmd('HSET', clueKey, pid, clue);
+      await this._expire(clueKey);
+    }
+    return now;
   }
 
   async getName(pid) {
@@ -228,15 +257,34 @@ class KvStore {
     await this._cmd('SET', `name:${pid}`, name);
   }
 
-  async leaderboard(date, viewerPid) {
+  /** See MemoryStore.leaderboard for why `reveal` exists. */
+  async leaderboard(date, viewerPid, reveal = false) {
     const flat = await this._cmd('ZRANGE', `best:${date}`, '0', String(LEADERBOARD_LIMIT - 1), 'WITHSCORES');
     if (!Array.isArray(flat) || flat.length === 0) return [];
     const rows = [];
     for (let i = 0; i < flat.length; i += 2) rows.push({ pid: flat[i], score: Number(flat[i + 1]) });
-    const names = await this._cmd('MGET', ...rows.map((r) => `name:${r.pid}`));
+    const [names, clues] = await Promise.all([
+      this._cmd('MGET', ...rows.map((r) => `name:${r.pid}`)),
+      reveal ? this._cmd('HMGET', `bestclue:${date}`, ...rows.map((r) => r.pid)) : Promise.resolve(null),
+    ]);
     return withRanks(
-      rows.map((r, i) => ({ score: r.score, name: names[i] || 'Anonym', you: r.pid === viewerPid })),
+      rows.map((r, i) => ({
+        score: r.score,
+        name: names[i] || 'Anonym',
+        you: r.pid === viewerPid,
+        ...(reveal ? { clue: clues?.[i] ?? null } : {}),
+      })),
     );
+  }
+
+  /** Averages over every solver, so this reads the whole day's set. */
+  async dayStats(date) {
+    const flat = await this._cmd('ZRANGE', `best:${date}`, '0', '-1', 'WITHSCORES');
+    if (!Array.isArray(flat) || flat.length === 0) return { solvers: 0, average: null };
+    let sum = 0;
+    let n = 0;
+    for (let i = 1; i < flat.length; i += 2) { sum += Number(flat[i]); n++; }
+    return { solvers: n, average: n ? sum / n : null };
   }
 
   /**
