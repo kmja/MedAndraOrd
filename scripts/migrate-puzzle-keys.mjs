@@ -17,8 +17,7 @@
 // Both are in the Vercel dashboard under Storage → your KV store → .env.local.
 
 import { WORDS } from '../server/words.js';
-
-try { process.loadEnvFile('.env'); } catch { /* fall back to the environment */ }
+import { ensureEnv } from './env.mjs';
 
 const [date, indexArg, ...flags] = process.argv.slice(2);
 const apply = flags.includes('--apply');
@@ -32,11 +31,24 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? '') || !Number.isInteger(index)) {
   process.exit(2);
 }
 
+const ok = await ensureEnv(
+  [
+    { name: 'KV_REST_API_URL', label: 'KV_REST_API_URL' },
+    { name: 'KV_REST_API_TOKEN', label: 'KV_REST_API_TOKEN' },
+  ],
+  {
+    intro: 'Behöver databasens uppgifter.\n'
+      + 'Hämta dem i Vercel: ditt projekt → Storage → din KV-databas → fliken .env.local.\n'
+      + 'Klistra in raderna en i taget (det går bra att klistra in hela raden, KV_REST_API_URL=... och allt).',
+  },
+);
+
 const url = (process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '').replace(/\/$/, '');
 const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-if (!url || !token) {
-  console.error('Saknar KV_REST_API_URL och KV_REST_API_TOKEN.');
-  console.error('Hämta dem i Vercel: Storage → din KV-databas → .env.local, och klistra in i .env.');
+if (!ok || !url || !token) {
+  console.error('\nSaknar KV_REST_API_URL och KV_REST_API_TOKEN.');
+  console.error('Sätt dem i .env, eller bara för det här kommandot:');
+  console.error('  KV_REST_API_URL=... KV_REST_API_TOKEN=... npm run migrate:puzzle -- <datum> <ordindex>');
   process.exit(2);
 }
 

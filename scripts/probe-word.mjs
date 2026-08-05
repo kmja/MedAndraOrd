@@ -48,6 +48,7 @@ import * as serverAi from '../server/ai.js';
 import { classifyApiError, retryDelayMs } from '../server/ai.js';
 import { isSwedishWord } from '../server/dictionary.js';
 import { checkClueCode, extractWord } from '../server/util.js';
+import { loadEnv, ensureEnv } from './env.mjs';
 import { clueLength, letterCount, normalize, suggestedLimit, clueLimitFor, CLUE_LIMIT_CEILING } from '../server/util.js';
 
 // ---------------------------------------------------------------------------
@@ -142,7 +143,7 @@ if (opts.dry) {
 }
 
 // Load .env so the key doesn't have to be pasted on every run.
-try { process.loadEnvFile('.env'); } catch { /* no .env — fall back to the environment */ }
+loadEnv();
 
 /**
  * Ask for the key rather than explaining how to create a dotfile. Writing
