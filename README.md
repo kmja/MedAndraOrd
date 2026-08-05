@@ -24,13 +24,41 @@ Det är spelets integritetsgaranti, och UI:t säger det rakt ut: en rätt gissni
 Kärnprincip: **prompta för omdöme, koda för begränsningar.** Varje regel som kan
 kontrolleras deterministiskt kontrolleras i kod, inte av en modell.
 
-Tre AI-roller (alla bakom serverproxyn — API-nyckeln lämnar aldrig servern):
+Två AI-roller (båda bakom serverproxyn — API-nyckeln lämnar aldrig servern):
 
 | Roll | Ser | Uppgift |
 |---|---|---|
-| **Domaren** (`referee`) | Allt: målord, förbjudna ord, ledtråd | Avvisar otillåtna ledtrådar med motivering. Kostar inget försök. |
-| **Gissaren** (`guesser`) | Endast ledtråden + antal bokstäver | Gissar ordet. Körs i en retry-loop (max 4 rundor): fel längd fångas i kod och åter-promptas; rätt längd verifieras. |
-| **Verifieraren** (`verifier`) | Endast gissningen | Avgör om gissningen är ett riktigt svenskt ord. Kan (och bör i produktion) ersättas av en ordboksuppslagning på servern. |
+| **Gissaren** (`guardedGuesser`) | Endast ledtråden + antal bokstäver | Bedömer ledtråden mot de regler som bara handlar om ledtråden, och gissar sedan ordet — i **samma anrop**. Retry-loop (max 4 rundor): fel längd fångas i kod och åter-promptas. |
+| **Verifieraren** (`verifier`) | Endast gissningen | Avgör om en *felaktig* gissning ändå är ett riktigt svenskt ord. Kan (och bör) ersättas av en ordboksuppslagning. |
+
+### Ett anrop per gissning
+
+Domaren är inte längre ett eget anrop. Regelboken delar sig efter vad den
+behöver se:
+
+- *Innehåller målordet / ett spärrat ord* kräver facit — och är redan en
+  deterministisk delsträngskontroll i `util.js`. Ingen modell behövs.
+- *Bara svenska, inga förkortningar, inga bokstaverings- eller rimtrick* är
+  egenskaper hos **enbart ledtråden**.
+
+Därför kan den andra gruppen åka med i gissarens prompt utan att målordet
+någonsin hamnar i modellens kontext. Blindheten är exakt lika intakt — prompten
+innehåller ledtråden och antalet bokstäver, inget annat. Det finns ett test som
+misslyckas om målordet eller ett spärrat ord läcker in i anropet.
+
+En lyckad inskickning kostar därmed **ett modellanrop**: en rätt gissning
+behöver ingen verifiering, eftersom målordet per definition är ett riktigt ord.
+En felaktig gissning kostar två (gissning + verifiering), en olaglig ledtråd ett.
+
+Priset för detta: den gamla domaren såg facit och kunde peka på en *översättning*
+direkt. Nu täcks det indirekt — en översättning till ett annat språk är inte ett
+svenskt ord — vilket missar specialfallet där översättningen också är ett svenskt
+ord ("chef" för kock). Det stängs bäst genom att lägga översättningar i ordbanken
+och kontrollera dem i kod, gratis och deterministiskt.
+
+Reglerna i prompten är medvetet generösa mot kreativitet: påhittade svenska
+sammansättningar och ovanliga bilder är tillåtna. Det är bara uppenbara genvägar
+(annat språk, förkortning, stavningstrick) som stoppas.
 
 Alla AI-*kontroller* misslyckas öppet (fail open) — en flaky kontroll blockerar
 aldrig spel. Om gissar-loopen tar slut visas gissningen genomstruken och
@@ -47,8 +75,8 @@ Deterministiska kontroller i kod (`server/util.js`):
 
 - **Ledtråds-cache på servern**: identiska (normaliserade) ledtrådar får
   identiska utslag — den första inskickningen låser domen för alla den dagen.
-  Samma cache är kostnadskontrollen (värsta fall 4 modellanrop per inskickning,
-  typiskt 2).
+  Samma cache är kostnadskontrollen (typiskt **1** modellanrop per inskickning,
+  se ovan; upprepade ledtrådar kostar noll).
 - **Servern räknar all poäng själv** — klienten rapporterar bara ledtrådstexten.
 - **5 försök per dag** per spelare (anonym httpOnly-cookie).
 - Rate limiting per spelare på ledtråds-endpointen.
@@ -78,7 +106,7 @@ valideras mot banken. Övningsdomar cacheas bara i minnet (bunden storlek) och
 samma rate limiting gäller. Sätt `ORDKNAPP_PRACTICE=0` för att ta bort läget
 helt ur en publik deploy.
 
-Mekaniken är språkagnostisk: allt svenskt bor i de tre prompterna
+Mekaniken är språkagnostisk: allt svenskt bor i prompterna
 (`server/ai.js`) och ordbanken. Ett nytt språk = översätt prompterna + ny ordlista.
 
 ## Kom igång
@@ -139,7 +167,7 @@ Enklare: `npm install && npm run build && npm start`. Då kör Express med
 | Variabel | Default | Beskrivning |
 |---|---|---|
 | `GEMINI_API_KEY` | — | Krävs. Hålls på servern. (`GOOGLE_API_KEY` fungerar också.) |
-| `ORDKNAPP_MODEL` | `gemini-3.1-flash-lite` | Modell för alla tre rollerna. Se Modellval nedan. |
+| `ORDKNAPP_MODEL` | `gemini-3.1-flash-lite` | Modell för båda rollerna. Se Modellval nedan. |
 | `PORT` | `3000` | |
 | `ORDKNAPP_DATA` | `data/store.json` | Lagringsfil (atomisk skrivning; byt ut `Store` mot en riktig databas i skala). |
 | `ORDKNAPP_PRACTICE` | på | Sätt till `0` för att stänga av övningsläget (”Slumpa ord”). |
@@ -157,13 +185,17 @@ Enklare: `npm install && npm run build && npm start`. Då kör Express med
 
 ## Modellval
 
-Alla tre rollerna kör samma modell: **Gemini 3.1 Flash-Lite**.
+Båda rollerna kör samma modell: **Gemini 3.1 Flash-Lite** — vald för att den har en gratisnivå och är den billigaste dugliga modellen.
 
-Arbetet per anrop är litet — den största prompten (domaren) är ~320 tokens, och
+Arbetet per anrop är litet — den största prompten är ~400 tokens, och
 ledtråds-cachen tar bort upprepningar — så billigaste dugliga modell vinner.
-Ungefärlig kostnad: ~3 000 in-tokens och ~200 ut-tokens per spelare och dag,
-alltså i storleksordningen **1 USD per 1 000 spelardagar**. Claude Haiku 4.5,
-som projektet startade på, är ungefär 4× dyrare för samma arbete.
+Ungefärlig kostnad efter att domaren slogs ihop med gissaren: ~1 000 in-tokens
+per spelare och dag, alltså långt under **1 USD per 1 000 spelardagar**. Claude
+Haiku 4.5, som projektet startade på, är ungefär 4× dyrare per token.
+
+Gratisnivån räcker för lansering: gränsen som biter först är requests/minut, inte
+requests/dag, eftersom ett dagligt spel spelas i en morgontopp. Ett anrop per
+inskickning i stället för tre tredubblar hur många samtidiga spelare som ryms.
 
 Två saker att veta:
 

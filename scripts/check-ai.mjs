@@ -7,7 +7,7 @@
 //
 // Exits non-zero if any role fails, so it can gate a deploy.
 
-import { referee, guesser, verifier, MODEL_ID } from '../server/ai.js';
+import { guardedGuesser, verifier, MODEL_ID } from '../server/ai.js';
 import { judgeClue } from '../server/game.js';
 
 if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_API_KEY) {
@@ -26,29 +26,32 @@ const ok = (label, pass, detail) => {
 
 console.log(`Modell: ${MODEL_ID}\n`);
 
-// 1. Referee must pass a fair clue and reject a translation. A referee that
-//    fails open on everything looks identical to a working one from the UI,
-//    which is exactly why this check exists.
-const fair = await referee({ target: TARGET, forbidden: FORBIDDEN, clue: 'kaninmat' });
-ok('domare: släpper igenom laglig ledtråd', fair?.legal === true,
+// 1. The single call must both judge and guess. A check that fails open on
+//    everything looks identical to a working one from the UI, which is
+//    exactly why this exists.
+const fair = await guardedGuesser({ clue: 'kaninmat', letterCount: 5 });
+ok('ett anrop: godkänner laglig ledtråd OCH gissar', fair?.legal === true && !!fair.guess,
    fair === null ? 'INGET SVAR (fail open — kontrollen är död)' : JSON.stringify(fair));
 
-const cheat = await referee({ target: TARGET, forbidden: FORBIDDEN, clue: 'carrot' });
-ok('domare: stoppar översättning', cheat?.legal === false,
+const cheat = await guardedGuesser({ clue: 'carrot', letterCount: 5 });
+ok('ett anrop: stoppar icke-svenska (översättning)', cheat?.legal === false,
    cheat === null ? 'INGET SVAR (fail open)' : JSON.stringify(cheat));
 
-// 2. Guesser must answer with a single word of the right length.
-const raw = await guesser({ clue: 'kaninmat', letterCount: 5 });
-ok('gissare: svarar med ett ord', typeof raw === 'string' && raw.trim().length > 0,
-   raw === null ? 'INGET SVAR' : JSON.stringify(raw.trim()));
+const abbrev = await guardedGuesser({ clue: 'bl.a. rotsak', letterCount: 5 });
+ok('ett anrop: stoppar förkortning', abbrev?.legal === false,
+   abbrev === null ? 'INGET SVAR (fail open)' : JSON.stringify(abbrev));
 
-// 3. Verifier must separate real words from invented ones.
+const creative = await guardedGuesser({ clue: 'kaninglass', letterCount: 5 });
+ok('ett anrop: tillåter påhittad svensk sammansättning', creative?.legal === true,
+   creative === null ? 'INGET SVAR' : JSON.stringify(creative));
+
+// 2. Verifier must separate real words from invented ones.
 const real = await verifier('morot');
 const fake = await verifier('morotsnäsa');
 ok('verifierare: godkänner riktigt ord', real === true, `morot → ${real}`);
 ok('verifierare: underkänner påhittat ord', fake === false, `morotsnäsa → ${fake}`);
 
-// 4. Whole pipeline, as a player would hit it.
+// 3. Whole pipeline, as a player would hit it.
 const verdict = await judgeClue({ clue: 'kaninmat', target: TARGET, forbidden: FORBIDDEN });
 ok('hela kedjan ger ett utslag', ['correct', 'wrong', 'ai_failure', 'rejected'].includes(verdict?.type),
    JSON.stringify(verdict));

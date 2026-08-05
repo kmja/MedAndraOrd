@@ -13,25 +13,43 @@ export class AiUnavailableError extends Error {
 }
 
 /**
- * Guesser retry loop: wrong-length guesses are caught in code (free — and
- * length feedback leaks nothing, the guesser already knows the length) and
- * re-prompted; right-length guesses go to the verifier, with failures fed
- * back. If the loop exhausts, the last guess is surfaced as an AI failure —
- * a rule-breaking guess is never presented as a legitimate outcome.
+ * Judge-and-guess loop. One model call per round, because the clue-only rules
+ * ride along in the guesser's prompt (see ai.guardedGuesser) — the target
+ * never enters the model's context, so the guess stays blind.
+ *
+ * Wrong-length guesses are caught in code (free — and length feedback leaks
+ * nothing, the guesser already knows the length) and re-prompted. Right-length
+ * guesses go to the verifier, with failures fed back. If the loop exhausts,
+ * the last guess is surfaced as an AI failure — a rule-breaking guess is never
+ * presented as a legitimate outcome.
+ *
+ * Returns one of:
+ *   { type: 'rejected', reason }
+ *   { type: 'correct',  guess }
+ *   { type: 'wrong',    guess }
+ *   { type: 'ai_failure', guess }
  */
-export async function runGuesserLoop({ clue, targetLetterCount, ai }) {
+export async function runGuesserLoop({ clue, target, targetLetterCount, ai }) {
   const feedback = [];
   let lastGuess = null;
 
   for (let round = 0; round < MAX_GUESS_ROUNDS; round++) {
-    const raw = await ai.guesser({ clue, letterCount: targetLetterCount, feedback });
-    if (raw == null) {
+    const result = await ai.guardedGuesser({ clue, letterCount: targetLetterCount, feedback });
+
+    if (result == null) {
+      // Unusable answer. Fail open on the rule check, but the guess itself
+      // cannot be faked — with nothing to show, the round is unplayable.
       if (lastGuess == null) throw new AiUnavailableError();
       break;
     }
-    const guess = extractWord(raw);
+
+    if (result.legal === false) {
+      return { type: 'rejected', reason: result.reason || 'Ledtråden bryter mot reglerna.' };
+    }
+
+    const guess = extractWord(result.guess);
     if (!guess) {
-      feedback.push({ guess: raw.trim().slice(0, 30) || '?', problem: 'not_word' });
+      feedback.push({ guess: String(result.guess).trim().slice(0, 30) || '?', problem: 'not_word' });
       continue;
     }
     lastGuess = guess;
@@ -41,15 +59,22 @@ export async function runGuesserLoop({ clue, targetLetterCount, ai }) {
       continue;
     }
 
+    // A guess equal to the target needs no verification — the target is a real
+    // word by construction. This is what keeps a successful submission at
+    // exactly one model call.
+    if (normalize(guess) === normalize(target)) {
+      return { type: 'correct', guess };
+    }
+
     const real = await ai.verifier(guess); // null → fail open
     if (real === false) {
       feedback.push({ guess, problem: 'not_word' });
       continue;
     }
-    return { guess, valid: true };
+    return { type: 'wrong', guess };
   }
 
-  return { guess: lastGuess, valid: false }; // "räknas som miss"
+  return { type: 'ai_failure', guess: lastGuess }; // "räknas som miss"
 }
 
 /**
@@ -71,26 +96,22 @@ export async function judgeClue({ clue, target, forbidden, ai = defaultAi }) {
     return { type: 'rejected', reason: codeVerdict.reason, source: 'code' };
   }
 
-  // 2. Referee — sees everything; rejects illegal clues with a stated reason
-  //    and no attempt cost. Fails open: a flaky check never blocks play.
-  const ruling = await ai.referee({ target, forbidden, clue });
-  if (ruling && ruling.legal === false) {
-    return {
-      type: 'rejected',
-      reason: ruling.reason || 'Ledtråden bryter mot reglerna.',
-      source: 'referee',
-    };
-  }
+  // 2. One blind call that both judges the clue-only rules and guesses.
+  const result = await runGuesserLoop({
+    clue,
+    target,
+    targetLetterCount: letterCount(target),
+    ai,
+  });
 
-  // 3. Blind guesser with retry loop + verifier.
-  const targetLetterCount = letterCount(target);
-  const { guess, valid } = await runGuesserLoop({ clue, targetLetterCount, ai });
-
-  if (!valid) {
-    return { type: 'ai_failure', guess: guess ?? null };
+  if (result.type === 'rejected') {
+    return { type: 'rejected', reason: result.reason, source: 'referee' };
   }
-  if (normalize(guess) === normalize(target)) {
-    return { type: 'correct', guess, score: clueLength(clue) };
+  if (result.type === 'correct') {
+    return { type: 'correct', guess: result.guess, score: clueLength(clue) };
   }
-  return { type: 'wrong', guess };
+  if (result.type === 'wrong') {
+    return { type: 'wrong', guess: result.guess };
+  }
+  return { type: 'ai_failure', guess: result.guess ?? null };
 }

@@ -60,6 +60,25 @@ export function parseRuling(text) {
   }
 }
 
+/**
+ * Parse the combined judge-and-guess reply. Exported for tests.
+ * Returns { legal: false, reason } | { legal: true, guess } | null.
+ * Null means "unusable answer" and is treated as an unavailable check.
+ */
+export function parseGuardedGuess(text) {
+  const ruling = parseRuling(text);
+  if (!ruling) return null;
+  if (!ruling.legal) return { legal: false, reason: ruling.reason };
+  const match = String(text).match(/\{[\s\S]*\}/);
+  try {
+    const guess = JSON.parse(match[0]).guess;
+    if (typeof guess !== 'string' || !guess.trim()) return null;
+    return { legal: true, guess };
+  } catch {
+    return null;
+  }
+}
+
 function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false }) {
   return client().models.generateContent({
     model: MODEL,
@@ -77,84 +96,65 @@ const userTurn = (text) => ({ role: 'user', parts: [{ text }] });
 const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
 
 /**
- * REFEREE — runs before the guesser and, unlike it, sees everything: target,
- * forbidden list, clue. Its prompt is the rulebook, grown from playtested
- * exploits. Returns { legal, reason } or null on failure (callers fail open:
- * a flaky check never blocks play).
+ * GUARDED GUESSER — judge and guess in a single call, still blind.
+ *
+ * The rulebook splits cleanly by what it needs to see:
+ *   - "contains the target / a forbidden word" needs the answer, and is
+ *     already a deterministic substring check in util.js. No model needed.
+ *   - "Swedish only", "no abbreviations", "no spelling or rhyme tricks" are
+ *     properties of the CLUE ALONE.
+ * So the second group can ride along in the guesser's prompt without the
+ * target ever entering the context. Blindness is preserved exactly: this
+ * prompt contains the clue and the letter count, nothing else.
+ *
+ * Returns { legal: false, reason } | { legal: true, guess } | null.
+ * Null means the check was unavailable — callers fail open.
+ *
+ * Known tradeoff: the old separate referee could see the target and so could
+ * spot a translation of it directly. Here that is covered indirectly — a
+ * translation into another language is not a Swedish word — which misses the
+ * rare case where the foreign translation is also a Swedish word ("chef" for
+ * kock). Closing that properly means putting translations in the word bank
+ * and checking them in code, which is free and deterministic.
  */
-export async function referee({ target, forbidden, clue }) {
-  const system = `Du är domare i ordspelet Ordknapp. En spelare skriver en ledtråd för att få en AI att gissa ett hemligt ord. Din uppgift är att avgöra om ledtråden är tillåten enligt reglerna.
+export async function guardedGuesser({ clue, letterCount, feedback = [] }) {
+  const system = `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
 
-REGLER — ledtråden är OTILLÅTEN om den:
-1. Innehåller målordet, en böjning eller avledning av det (t.ex. plural, bestämd form, sammansättning).
-2. Innehåller något av de förbjudna orden eller böjningar av dem.
-3. Är eller innehåller en översättning av målordet till något annat språk (engelska, tyska, franska, spanska, eller något annat språk).
-4. Inte är svenska: icke-etablerade lånord eller anglicismer som används i stället för etablerad svenska är otillåtna. Lånord som sedan länge är etablerade i svenskan (t.ex. paraply, jobb, tv) är tillåtna.
-5. Innehåller förkortningar.
-6. Använder bokstaveringstrick eller rimtrick (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
+STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
+1. Inte är svenska: ord från andra språk, eller icke-etablerade lånord och anglicismer som används i stället för etablerad svenska. Lånord som sedan länge är etablerade i svenskan (t.ex. paraply, jobb, tv) är tillåtna.
+2. Innehåller förkortningar.
+3. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller ljud i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
 
-Var inte onödigt sträng: en vanlig svensk ledtråd som beskriver ordet utan att bryta mot reglerna ovan ska godkännas.
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder och kreativa omskrivningar är TILLÅTNA så länge de är på svenska och beskriver betydelse. Avvisa bara det som klart bryter mot 1–3.
 
-Svara ENDAST med JSON på exakt denna form:
-{"legal": true} eller {"legal": false, "reason": "kort motivering på svenska"}`;
+STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb) med exakt ${letterCount} bokstäver. Hitta inte på ord.
 
-  const user = `Målord: ${target}
-Förbjudna ord: ${forbidden.join(', ')}
-Ledtråd: "${clue}"`;
+Svara ENDAST med JSON:
+{"legal": true, "guess": "ordet"}
+eller
+{"legal": false, "reason": "kort motivering på svenska"}`;
+
+  const contents = [
+    userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.`),
+  ];
+  for (const fb of feedback) {
+    contents.push(modelTurn(JSON.stringify({ legal: true, guess: fb.guess })));
+    contents.push(userTurn(guessCorrection(fb, letterCount)));
+  }
 
   try {
-    const response = await generate({ system, contents: [userTurn(user)], json: true });
-    return parseRuling(textOf(response));
+    const response = await generate({ system, contents, maxOutputTokens: 150, json: true });
+    return parseGuardedGuess(textOf(response));
   } catch (err) {
-    console.error('referee failed:', err.message);
+    console.error('guardedGuesser failed:', err.message);
     return null; // fail open
   }
 }
 
-/**
- * GUESSER — blind: the prompt contains only the clue and the target's letter
- * count, never the answer. This blindness is the game's integrity guarantee.
- * `feedback` carries corrections from earlier rounds of the retry loop.
- * Returns raw response text, or null on API failure.
- */
-export async function guesser({ clue, letterCount, feedback = [] }) {
-  const system = `Du är gissaren i ordspelet Ordknapp. Du får en ledtråd och ska gissa ett hemligt svenskt ord.
-
-Krav på din gissning:
-- Exakt ETT ord.
-- Ett riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb).
-- Ordet har exakt ${letterCount} bokstäver.
-- Hitta inte på ord. Om du är osäker, välj det vanligaste ordet som passar.
-
-Svara ENDAST med ordet, inget annat.`;
-
-  const contents = [
-    userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver. Vad är ordet?`),
-  ];
-  for (const fb of feedback) {
-    contents.push(modelTurn(fb.guess));
-    if (fb.problem === 'length') {
-      contents.push(
-        userTurn(
-          `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver.`,
-        ),
-      );
-    } else {
-      contents.push(
-        userTurn(
-          `"${fb.guess}" är inte ett etablerat svenskt ord i grundform. Gissa ett riktigt svenskt ord med exakt ${letterCount} bokstäver.`,
-        ),
-      );
-    }
-  }
-
-  try {
-    const response = await generate({ system, contents, maxOutputTokens: 50 });
-    return textOf(response);
-  } catch (err) {
-    console.error('guesser failed:', err.message);
-    return null;
-  }
+function guessCorrection(fb, letterCount) {
+  return fb.problem === 'length'
+    ? `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`
+    : `"${fb.guess}" är inte ett etablerat svenskt ord i grundform. Gissa ett riktigt svenskt ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
 }
 
 /**
