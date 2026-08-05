@@ -263,8 +263,25 @@ npm run probe -- --new "kikare:lins,titta,långt,glas,fjärran"
 npm run probe -- --new "kikare:"        utan spärrlista, för att se vad som vinner
 ```
 
-Fler flaggor: `--clues <n>` (antal kandidatledtrådar, default 12) och
-`--json <fil>` (spara utfallet, så flera körningar kan jämföras).
+Fler flaggor: `--clues <n>` (antal kandidatledtrådar, default 12),
+`--out <mapp>` (var resultaten hamnar) och `--no-save`.
+
+**Resultaten sparas automatiskt** i `probe-results/`, en fil per ord med en post
+per körning. Det är själva poängen med kurering: kör, spärra en väg, kör igen,
+och se om ordet faktiskt blev svårare. Andra körningen av ett ord skriver ut
+skillnaden mot den förra:
+
+```
+  JÄMFÖRT MED FÖRRA KÖRNINGEN (2026-08-05 14:34)
+    kortaste      5 (oförändrat)
+    lösningsgrad  50 → 33 (-17) %
+    spärrlista    +plagg
+```
+
+Är spärrlistan oförändrad mellan två körningar säger utskriften det också —
+skillnader i siffrorna är då modellens spridning, inte en effekt av något du
+gjorde. Mappen är inte gitignorerad; checka in den om du vill ha kureringen i
+historiken.
 
 Kör alltid `--dry` först på ett större urval. Den skriver ut hur många anrop
 körningen blir — ett förslagsanrop per ord plus ett bedömningsanrop per ledtråd,

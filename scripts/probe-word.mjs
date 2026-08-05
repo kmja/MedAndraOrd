@@ -37,6 +37,9 @@
 //   solved 90%+   — too easy in a different way: every route works, so the
 //                   scoring collapses to whoever types fewest characters.
 
+import fs from 'node:fs';
+import path from 'node:path';
+
 import { GoogleGenAI } from '@google/genai';
 
 import { WORDS, wordByIndex } from '../server/words.js';
@@ -48,13 +51,18 @@ import { clueLength, letterCount, normalize, MAX_CLUE_LENGTH } from '../server/u
 // arguments
 
 const argv = process.argv.slice(2);
-const opts = { clues: 12, dry: false, json: null, bank: 0, words: [], custom: [] };
+const opts = {
+  clues: 12, dry: false, json: null, bank: 0, words: [], custom: [],
+  out: 'probe-results', save: true,
+};
 
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--dry') opts.dry = true;
   else if (a === '--clues') opts.clues = Number(argv[++i]);
   else if (a === '--json') opts.json = argv[++i];
+  else if (a === '--out') opts.out = argv[++i];
+  else if (a === '--no-save') opts.save = false;
   else if (a === '--bank') opts.bank = Number(argv[++i] || 10);
   else if (a === '--new') opts.custom.push(argv[++i]);
   else if (a.startsWith('--')) fail(`Okänd flagga: ${a}`);
@@ -63,7 +71,18 @@ for (let i = 0; i < argv.length; i++) {
 
 function fail(msg) {
   console.error(msg);
-  console.error('\nAnvändning:\n  npm run probe -- <ord...>\n  npm run probe -- --new "ord:spärr1,spärr2,..."\n  npm run probe -- --bank <antal>\nFlaggor: --clues <n>  --dry  --json <fil>');
+  console.error(`
+Användning:
+  npm run probe -- <ord...>                      ord ur banken
+  npm run probe -- --new "ord:spärr1,spärr2"     ord som inte finns i banken än
+  npm run probe -- --bank <antal>                slumpat urval
+
+Flaggor:
+  --dry            visa bara hur många anrop det blir, ring ingen AI
+  --clues <n>      antal kandidatledtrådar per ord (default 12)
+  --out <mapp>     var resultaten sparas (default probe-results/)
+  --no-save        spara inget
+  --json <fil>     extra samlad dump av just den här körningen`);
   process.exit(2);
 }
 
@@ -215,6 +234,81 @@ function routes(solved, forbidden) {
 }
 
 // ---------------------------------------------------------------------------
+// storage — one file per word, appended to
+//
+// Curation is iterative: probe, ban a route, probe again, see whether the word
+// actually got harder. That loop only works if the previous run is still
+// around, so each word keeps its own history rather than the run overwriting a
+// single results file.
+
+const store = {
+  file: (word) => path.join(opts.out, `${normalize(word).replace(/[^\p{L}\p{N}]/gu, '_')}.json`),
+
+  read(word) {
+    try {
+      return JSON.parse(fs.readFileSync(this.file(word), 'utf8'));
+    } catch {
+      return null; // no history yet, or unreadable — either way, start fresh
+    }
+  },
+
+  append(word, run) {
+    fs.mkdirSync(opts.out, { recursive: true });
+    const history = this.read(word) ?? { word, runs: [] };
+    history.runs.push(run);
+    fs.writeFileSync(this.file(word), JSON.stringify(history, null, 2));
+  },
+
+  /** Every word probed so far, latest run only — the "what still needs work" view. */
+  index() {
+    let files = [];
+    try {
+      files = fs.readdirSync(opts.out).filter((f) => f.endsWith('.json') && f !== 'index.json');
+    } catch {
+      return [];
+    }
+    const rows = [];
+    for (const f of files) {
+      try {
+        const h = JSON.parse(fs.readFileSync(path.join(opts.out, f), 'utf8'));
+        const last = h.runs?.[h.runs.length - 1];
+        if (last) rows.push({ word: h.word, runs: h.runs.length, ...last });
+      } catch { /* skip a file we can't read rather than losing the whole index */ }
+    }
+    const rank = { 'FÖR LÄTT': 0, 'FÖR LÄTT (allt löser)': 1, 'FÖR SVÅR': 2, BRA: 3 };
+    return rows.sort((a, b) => (rank[a.verdict] ?? 9) - (rank[b.verdict] ?? 9) || (a.shortest ?? 99) - (b.shortest ?? 99));
+  },
+};
+
+const arrow = (before, after) => {
+  if (before == null && after == null) return '—';
+  if (before === after) return `${after} (oförändrat)`;
+  const d = before != null && after != null ? ` (${after > before ? '+' : ''}${after - before})` : '';
+  return `${before ?? '—'} → ${after ?? '—'}${d}`;
+};
+
+/** What changed since the last run of this word — the point of keeping history. */
+function printDelta(word, prev, now) {
+  if (!prev) return;
+  console.log(`\n  JÄMFÖRT MED FÖRRA KÖRNINGEN (${prev.at.slice(0, 16).replace('T', ' ')})`);
+  console.log(`    kortaste      ${arrow(prev.shortest, now.shortest)}`);
+  console.log(`    lösningsgrad  ${arrow(prev.rate, now.rate)} %`);
+  if (prev.verdict !== now.verdict) console.log(`    omdöme        ${prev.verdict} → ${now.verdict}`);
+
+  const before = new Set(prev.forbidden.map(normalize));
+  const after = new Set(now.forbidden.map(normalize));
+  const added = [...after].filter((f) => !before.has(f));
+  const removed = [...before].filter((f) => !after.has(f));
+  if (added.length || removed.length) {
+    console.log(`    spärrlista    ${[...added.map((f) => `+${f}`), ...removed.map((f) => `−${f}`)].join(' ')}`);
+  } else {
+    // Same list, different numbers: the model is not deterministic, so a small
+    // swing between identical runs is noise rather than a result.
+    console.log(`    spärrlista    oförändrad — skillnader här är modellens spridning, inte en effekt`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 async function probe(entry) {
   const clues = await proposeClues(entry);
@@ -238,20 +332,33 @@ const e = estimate(targets.length);
 console.log(`Modell: ${MODEL} · ${targets.length} ord × ${opts.clues} ledtrådar · ~${e.min}–${e.max} anrop\n`);
 
 const report = [];
+const startedAt = new Date().toISOString();
+
 for (const entry of targets) {
+  // Read the history BEFORE this run is appended, or the comparison would be
+  // against itself.
+  const prev = opts.save ? store.read(entry.word)?.runs?.slice(-1)[0] ?? null : null;
+
   const r = await probe(entry);
-  report.push({
+  const record = {
+    at: startedAt,
+    model: MODEL,
+    clues: opts.clues,
     word: entry.word,
     forbidden: entry.forbidden,
     letters: letterCount(entry.word),
     inBank: entry.index >= 0,
     shortest: r.shortest?.len ?? null,
+    shortestClue: r.shortest?.clue ?? null,
     rate: r.rate,
     verdict: r.verdict,
     solved: r.solved.map((s) => ({ clue: s.clue, len: s.len })),
     rejected: r.results.filter((x) => x.type === 'rejected').map((x) => ({ clue: x.clue, reason: x.reason })),
+    missed: r.results.filter((x) => x.type === 'wrong').map((x) => ({ clue: x.clue, guess: x.guess })),
     routes: r.routes,
-  });
+  };
+  report.push(record);
+  if (opts.save) store.append(entry.word, record);
 
   console.log(`${entry.word.toUpperCase()} (${letterCount(entry.word)} bokstäver)${entry.index < 0 ? '  [utanför banken]' : ''}`);
   console.log(`  spärrat: ${entry.forbidden.join(', ') || '(inget)'}`);
@@ -269,6 +376,7 @@ for (const entry of targets) {
     }
     console.log(`    Spärra den billigaste vägen först och kör om — spärrar man alla blir ordet olösligt, inte svårt.`);
   }
+  printDelta(entry.word, prev, record);
   console.log();
 }
 
@@ -279,8 +387,23 @@ for (const s of report) {
 const bad = report.filter((s) => s.verdict !== 'BRA');
 console.log(`\n${bad.length}/${report.length} ord behöver ses över.`);
 
+if (opts.save) {
+  console.log(`\nSparat i ${opts.out}/ — ett filnamn per ord, en post per körning.`);
+
+  const index = store.index();
+  if (index.length > report.length) {
+    console.log(`\nALLA ORD SOM TESTATS (${index.length} st, senaste körningen per ord)\n`);
+    for (const row of index) {
+      const mark = row.verdict === 'BRA' ? ' ' : '!';
+      console.log(
+        `  ${mark} ${row.word.padEnd(14)} kortaste ${String(row.shortest ?? '-').padStart(2)}` +
+        `  ${String(row.rate).padStart(3)}%  ${row.verdict.padEnd(21)} ${row.runs} körning${row.runs === 1 ? '' : 'ar'}`,
+      );
+    }
+  }
+}
+
 if (opts.json) {
-  const fs = await import('node:fs');
   fs.writeFileSync(opts.json, JSON.stringify(report, null, 2));
-  console.log(`\nSparat till ${opts.json}`);
+  console.log(`\nOckså sparat samlat till ${opts.json}`);
 }

@@ -90,10 +90,14 @@ jobs:
           echo
           npm run probe -- "${args[@]}" $WORDS
 
+      # A runner is thrown away after the job, so the per-word history the
+      # script builds has to leave with the artifact or it is lost.
       - name: Spara resultatet
         if: ${{ !cancelled() && !inputs.dry }}
         uses: actions/upload-artifact@v4
         with:
           name: probe-resultat
-          path: probe-resultat.json
+          path: |
+            probe-results/
+            probe-resultat.json
           if-no-files-found: ignore
