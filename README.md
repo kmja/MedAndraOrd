@@ -1,7 +1,7 @@
 # Ordknapp
 
 Ett dagligt ordspel på svenska. Spelaren ser ett hemligt ord och en lista med
-spärrade ord, och skriver en ledtråd (**par 10 tecken**, hårt tak 25) som ska
+spärrade ord, och skriver en ledtråd (**par 10 tecken**, hårt tak 18) som ska
 få en AI att gissa ordet. Poängen är antalet tecken i den kortaste lyckade ledtråden —
 golfregler, lägre är bättre — med en topplista per ord. **Mellanslag räknas
 inte**, varken mot gränsen eller i poängen, så läsbar formatering är gratis och
@@ -142,7 +142,7 @@ skulle den frysa ledtråden som permanent misslyckad, och en ny inskickning
 skulle aldrig kunna få ett nytt försök till en riktig gissning.
 
 Deterministiska kontroller i kod (`server/util.js`):
-- Högst 25 tecken, mellanslag oräknade (`MAX_CLUE_LENGTH` + `clueLength()` i
+- Högst 18 tecken, mellanslag oräknade (`MAX_CLUE_LENGTH` + `clueLength()` i
   `server/util.js` — enda stället; UI:t hämtar gränsen från `/api/state` och
   speglar räkningen enbart för att visa siffran).
 - Emoji avvisas via Unicode property-regex före alla API-anrop.
@@ -155,11 +155,11 @@ Två tal, med olika jobb:
 
 - **`PAR_CLUE_LENGTH` = 10** är målet — siffran spelet handlar om, utmärkt på
   längdmätaren under inmatningen.
-- **`MAX_CLUE_LENGTH` = 25** är bara ett tak. Det finns för att begränsa kostnad
+- **`MAX_CLUE_LENGTH` = 18** är bara ett tak. Det finns för att begränsa kostnad
   och hindra inklistrade uppsatser, inte för att skapa svårighet.
 
 Golfpoängen ger redan pressen att vara kort, så taket kan vara generöst utan att
-göra topplistan mjuk: en lösning på 24 tecken *är* en lösning, och den hamnar
+göra topplistan mjuk: en lösning på 18 tecken *är* en lösning, och den hamnar
 längst ner på listan där den hör hemma. Ett hårt tak på 10 gjorde i praktiken
 vissa ord olösbara — vilket är en sämre upplevelse än en lång ledtråd med dåligt
 resultat.

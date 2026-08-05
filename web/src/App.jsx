@@ -23,17 +23,28 @@ const isAttempt = (entry) => entry?.type === 'correct' || entry?.type === 'wrong
 
 /**
  * How the player stands among today's solvers, in words.
- * A percentile from three players is noise, so small fields get a plain
- * placing instead of a made-up-sounding percentage.
+ *
+ * This sentence counts PLAYERS, while the board below it ranks CLUES —
+ * identical clues share one row, so the two numbers legitimately differ. It
+ * must therefore never print a bare place number: "Plats 6 av 7" sitting above
+ * a row marked "4" reads as a bug. Beaten-players and percentile are both
+ * player-based statements, and neither can contradict a row.
+ *
+ * The percentile is also only used where it means something: a percentage out
+ * of three players is noise, and "bland de 86 % bästa" is flattery dressed as
+ * a statistic. Small fields and bottom halves get the plain count instead.
  */
 function standingText(standing) {
   if (!standing) return null;
   const { rank, total } = standing;
   if (total <= 1) return 'Först idag!';
   if (rank === 1) return `Bäst idag — av ${total} spelare`;
-  if (total < 10) return `Plats ${rank} av ${total} idag`;
+
+  const beaten = total - rank;
   const pct = Math.max(1, Math.round((rank / total) * 100));
-  return `Du är bland de ${pct} % bästa idag`;
+  if (total >= 10 && pct <= 50) return `Du är bland de ${pct} % bästa idag`;
+  if (beaten > 0) return `Bättre än ${beaten} av ${total} spelare idag`;
+  return `Du klarade dagens ord — av ${total} spelare`;
 }
 
 /**
@@ -48,14 +59,11 @@ function LengthMeter({ length, max, par, average }) {
     <div className="meter" aria-hidden="true">
       <div className={over ? 'meter-track is-over' : 'meter-track'}>
         {Array.from({ length: max }, (_, i) => (
-          <span
-            key={i}
-            className={`seg${i < length ? ' on' : ''}${i + 1 === par ? ' at-par' : ''}`}
-          />
+          <span key={i} className={i < length ? 'seg on' : 'seg'} />
         ))}
         {par > 0 && par <= max && (
           <span className="mark mark-par" style={{ left: pctOf(par) }}>
-            <b>par {par}</b>
+            <b>bonus</b>
           </span>
         )}
         {average != null && average <= max && (
@@ -68,24 +76,46 @@ function LengthMeter({ length, max, par, average }) {
   );
 }
 
-function LetterRow({ word, tone = 'answer', length, size }) {
-  const letters = word ? chars(word.toUpperCase()) : Array.from({ length: length ?? 0 }, () => '');
+const ALPHABET = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ'];
+
+/**
+ * The answer row. While the guess is in flight every square cycles letters like
+ * a reel; when it lands the reels stop left to right, one square at a time.
+ *
+ * `revealed` is how many squares have stopped. null means "not spinning" —
+ * a settled row from an earlier attempt.
+ */
+function LetterRow({ word, tone = 'answer', length, size, spin = 0, revealed = null }) {
+  const target = word ? chars(word.toUpperCase()) : null;
+  const n = target ? target.length : (length ?? 0);
+  const spinning = (i) => revealed !== null && i >= revealed;
+
   return (
     <div
       className={`row row-${tone}${size ? ` row-${size}` : ''}`}
-      style={{ '--n': letters.length }}
-      aria-label={word || `${length} bokstäver`}
+      style={{ '--n': n }}
+      aria-label={word || `${n} bokstäver`}
     >
-      {letters.map((letter, i) => (
-        <span key={i} className="box" style={{ '--i': i }} aria-hidden="true">{letter}</span>
+      {Array.from({ length: n }, (_, i) => (
+        <span
+          key={i}
+          className={spinning(i) ? 'box is-spinning' : 'box'}
+          style={{ '--i': i }}
+          aria-hidden="true"
+        >
+          {spinning(i)
+            ? ALPHABET[(spin * 7 + i * 11) % ALPHABET.length]
+            : (target ? target[i] : '')}
+        </span>
       ))}
     </div>
   );
 }
 
 /** The AI's answer, centre stage, with the clue that produced it as an eyebrow. */
-function ResponseCard({ entry, pending, clue, letterCount, latest, children }) {
-  const tone = pending ? 'pending' : entry.type === 'correct' ? 'correct' : 'wrong';
+function ResponseCard({ entry, pending, clue, letterCount, latest, children, spin = 0, revealed = null }) {
+  const settling = revealed !== null && entry;
+  const tone = pending || settling ? 'pending' : entry.type === 'correct' ? 'correct' : 'wrong';
   return (
     <article className={`response response-${tone}${latest ? ' is-latest' : ''}`}>
       <p className="eyebrow">
@@ -99,6 +129,8 @@ function ResponseCard({ entry, pending, clue, letterCount, latest, children }) {
           length={letterCount}
           tone={tone}
           size={latest ? 'big' : undefined}
+          spin={spin}
+          revealed={pending ? 0 : revealed}
         />
         {tone === 'correct' && (
           <span className="sparkles" aria-hidden="true">
@@ -107,7 +139,7 @@ function ResponseCard({ entry, pending, clue, letterCount, latest, children }) {
         )}
       </div>
 
-      {pending ? (
+      {pending || settling ? (
         <p className="verdict thinking">AI:n gissar<i>.</i><i>.</i><i>.</i></p>
       ) : entry.type === 'correct' ? (
         <p className="verdict verdict-win">Rätt! <strong>{entry.score} tecken</strong></p>
@@ -183,7 +215,39 @@ export default function App() {
   const [history, setHistory] = useState([]); // newest first
   const [notice, setNotice] = useState(null);
   const [practice, setPractice] = useState(null);
+  const [spin, setSpin] = useState(0);
+  const [settling, setSettling] = useState(null); // { entry, revealed }
+  const [invalid, setInvalid] = useState(false);
   const inputRef = useRef(null);
+
+  // The reels turn for as long as anything is unresolved.
+  const spinning = pendingClue !== null || settling !== null;
+  useEffect(() => {
+    if (!spinning) return undefined;
+    const id = setInterval(() => setSpin((t) => t + 1), 70);
+    return () => clearInterval(id);
+  }, [spinning]);
+
+  // Reels stop left to right, then the verdict lands.
+  useEffect(() => {
+    if (!settling) return undefined;
+    const total = chars(settling.entry.guess ?? '').length;
+    if (settling.revealed >= total) {
+      const id = setTimeout(() => {
+        setHistory((h) => [settling.entry, ...h]);
+        setSettling(null);
+      }, 180);
+      return () => clearTimeout(id);
+    }
+    const id = setTimeout(() => setSettling((s2) => s2 && { ...s2, revealed: s2.revealed + 1 }), 130);
+    return () => clearTimeout(id);
+  }, [settling]);
+
+  // A refused clue buzzes the field, the way a form rejects a bad phone number.
+  function buzz() {
+    setInvalid(true);
+    setTimeout(() => setInvalid(false), 520);
+  }
 
   useEffect(() => {
     api('/api/state')
@@ -196,12 +260,13 @@ export default function App() {
 
   const active = practice ?? state;
   const busy = pendingClue !== null;
+  const inFlight = busy || settling !== null;
   const outOfAttempts = !practice && state.attemptsLeft <= 0;
   const clueLen = clueLength(clue);
   const tooLong = clueLen > state.maxClueLength;
   const attempts = history.filter(isAttempt);
   const solved = attempts.some((h) => h.type === 'correct');
-  const canPlay = !outOfAttempts && !busy;
+  const canPlay = !outOfAttempts && !busy && settling === null;
 
   async function submit(e) {
     e.preventDefault();
@@ -216,7 +281,9 @@ export default function App() {
         : { clue: text };
       const res = await api('/api/clue', { method: 'POST', body: JSON.stringify(body) });
       const entry = { clue: text, ...res.result };
-      setHistory((h) => [entry, ...h]);
+      // A guess gets the reel-stop treatment; everything else resolves at once.
+      if (isAttempt(entry) && entry.guess) setSettling({ entry, revealed: 0 });
+      else setHistory((h) => [entry, ...h]);
       if (!res.practice) {
         setState((s) => ({
           ...s,
@@ -232,12 +299,15 @@ export default function App() {
       if (entry.type === 'rejected') {
         setNotice({ kind: 'rejected', text: entry.reason });
         setClue(text); // let them edit rather than retype
+        buzz();
       } else if (entry.type === 'ai_failure') {
         setNotice({ kind: 'ai_failure', guess: entry.guess });
+        buzz();
       }
     } catch (err) {
       setNotice({ kind: 'error', text: err.message });
       setClue(text);
+      buzz();
     } finally {
       setPendingClue(null);
       inputRef.current?.focus();
@@ -276,13 +346,13 @@ export default function App() {
     <div className="shell">
       <header>
         <h1>Ordknapp</h1>
-        <p className="tagline">Skriv en ledtråd så att AI:n gissar ordet. Kortast vinner.</p>
+        <p className="tagline">Skriv en ledtråd. AI:n gissar. Kortast vinner.</p>
       </header>
 
       <main className="card">
         <div className="puzzle">
           <span className="label">{practice ? 'Övningsord' : 'Dagens ord'}</span>
-          <LetterRow word={active.word} tone="answer" size="big" />
+          <p className="target">{active.word}</p>
           <div className="forbidden">
             <span className="label">Får inte användas</span>
             <span className="chips">
@@ -292,7 +362,7 @@ export default function App() {
         </div>
 
         {/* The input lives at the top: each answer is pushed down beneath it. */}
-        <form onSubmit={submit} className="clue-form">
+        <form onSubmit={submit} className={inFlight ? 'clue-form is-away' : 'clue-form'} aria-hidden={inFlight}>
           <p className={outOfAttempts ? 'attempts attempts-out' : 'attempts'}>{attemptsLabel}</p>
           <div className="input-row">
             <input
@@ -300,6 +370,7 @@ export default function App() {
               value={clue}
               onChange={(e) => setClue(e.target.value)}
               placeholder={outOfAttempts ? 'Nytt ord imorgon' : 'Din ledtråd…'}
+              className={invalid ? 'is-invalid' : undefined}
               disabled={!canPlay}
               autoFocus
               maxLength={60}
@@ -343,7 +414,23 @@ export default function App() {
 
         <div className="responses" aria-live="polite">
           {busy && (
-            <ResponseCard pending clue={pendingClue} letterCount={active.letterCount} latest />
+            <ResponseCard
+              pending
+              clue={pendingClue}
+              letterCount={active.letterCount}
+              latest
+              spin={spin}
+            />
+          )}
+          {settling && (
+            <ResponseCard
+              entry={settling.entry}
+              clue={settling.entry.clue}
+              letterCount={active.letterCount}
+              latest
+              spin={spin}
+              revealed={settling.revealed}
+            />
           )}
           {attempts.map((entry, i) => (
             <ResponseCard
