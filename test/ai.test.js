@@ -184,6 +184,27 @@ test('the guesser prompt requires a clue to read as Swedish', () => {
   }
 });
 
+test('every rule the prompt lists is a rule it says to enforce', () => {
+  // The rules are numbered, and the closing instruction names a range. Adding
+  // rule 4 without widening that range left it described but not enforced —
+  // the prompt said "avvisa bara det som klart bryter mot 1–3" underneath a
+  // list of four. Nothing in the output looks wrong when this happens; the
+  // rule simply never fires.
+  for (const prompt of [guesserSystemPrompt(6), batchGuesserSystemPrompt()]) {
+    const listed = [...prompt.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+    const highest = Math.max(...listed);
+    assert.ok(highest >= 4, `expected at least 4 numbered rules, saw ${highest}`);
+
+    const range = /bryter mot 1[–-](\d+)/.exec(prompt);
+    assert.ok(range, 'the prompt must say which rules to enforce');
+    assert.equal(
+      Number(range[1]),
+      highest,
+      `prompt lists ${highest} rules but only tells the model to enforce 1-${range[1]}`,
+    );
+  }
+});
+
 test('the guesser prompt tells the model to expect oblique clues', () => {
   // Golf scoring pushes players toward cryptic-crossword phrasing rather than
   // definitions. A guesser reading those literally rejects or misses good
