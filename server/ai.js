@@ -277,6 +277,9 @@ const CLUE_RULES = `STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "gräv" för att leda till grävskopa). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
 4. Är en uppräkning i stället för en formulering: flera fristående utpekanden på rad, som var för sig associerar till svaret men inte bygger EN språklig enhet ("rep gnista damm", "murken planka flis"). Testet är grammatiskt, inte semantiskt: bildar orden en fras med ett huvudord och dess bestämningar, eller en sats? Då är den tillåten. Är det tre saker uppradade efter varandra är den det inte.
 5. Pekar ut en DEL av saken i stället för saken själv: ett föremål, en beståndsdel eller de människor som hör till svaret, men som inte säger vad svaret är ("propeller" för en helikopter, "kugge" för ett urverk). Delen leder till helheten bara genom att man råkar veta var delen brukar sitta, och det är en uppslagning, inte en formulering. Den här regeln kan du först pröva när du vet vad du skulle gissa — se STEG 2.
+6. Pekar ut något ANNAT av samma slag som svaret — en syskonsak, inte svaret ("kajak" för en kanot, "tisdag" för en onsdag, "aprikos" för ett plommon). En syskonsak är inte en beskrivning: den säger bara "något i den här kategorin", och resten av jobbet gör bokstavsantalet. Den här regeln prövas också mot din egen gissning — se STEG 2.
+
+Se noga upp med skillnaden mot exempel-regeln nedan: ett EXEMPEL PÅ svaret är tillåtet, en SYSKONSAK till svaret är det inte. "nilen" för flod är tillåtet, för Nilen ÄR en flod. "kajak" för kanot är det inte, för en kajak är ingen kanot — den är något annat av samma sort.
 
 JÄMFÖR NOGA — skillnaden är strukturen, aldrig antalet ord:
   "blött plask"        TILLÅTEN. Adjektiv + substantiv som kongruerar: ett plask som är blött. En fras.
@@ -299,7 +302,7 @@ Lika viktigt: **egennamn och kända exempel på kategorin är TILLÅTNA** — "n
 
 Detsamma gäller **förkortade** exempel: "sept" och "okt" är samma drag som "nilen", och ska bedömas lika. Förkortningar är inte förbjudna. Det går ändå inte att veta om "jan" är tänkt som en förkortning eller som ett namn, och en regel som inte går att tillämpa konsekvent gör mer skada än nytta — samma ledtråd måste få samma dom varje gång.
 
-Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska, hänger ihop språkligt och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–5.`;
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska, hänger ihop språkligt och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–6.`;
 
 /**
  * The bank is mostly nouns, so a model with no class given will reach for one.
@@ -318,9 +321,15 @@ const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga
 // an answer to be a part OF — and the guesser never sees the target. So it is
 // checked here instead, against the guesser's own guess, once it has one.
 // Blindness is untouched: this reads the model's guess, never the word.
-const PART_CHECK = `Innan du svarar: pröva regel 5 mot din egen gissning. Sitter ledtrådens sak i eller på det ord du landat i, utan att säga vad ordet ÄR? Då är ledtråden otillåten — svara med legal: false och nämn att ledtråden pekar ut en del, i stället för att gissa.
+const PART_CHECK = `Innan du svarar: pröva regel 5 och 6 mot din egen gissning. Båda handlar om att ledtråden pekar på något BREDVID svaret i stället för att beskriva svaret, och båda går först att avgöra när du vet vad du skulle gissa.
 
-Är ledtråden i stället något ordet gör, orsakar, används till, eller påminner om, är den TILLÅTEN. Ett plask är ingen del av ett skodon — det är något skodonet orsakar. Den skillnaden är hela regeln: en del sitter i saken, en beskrivning säger något om den.`;
+Regel 5 — är ledtrådens sak en DEL av ordet du landat i? Sitter den i eller på ordet utan att säga vad ordet ÄR, är ledtråden otillåten.
+
+Regel 6 — är ledtrådens sak något ANNAT av samma slag som ordet du landat i? Fråga: kan man säga "det här ÄR ett/en <ordet>"? Går det, är ledtråden ett exempel och TILLÅTEN. Går det inte, fast sakerna hör till samma kategori, är den en syskonsak och OTILLÅTEN.
+
+Bryter ledtråden mot någon av dem: svara med legal: false och säg kort vilken, i stället för att gissa.
+
+Allt annat står kvar. Är ledtråden något ordet gör, orsakar, används till, eller påminner om, är den TILLÅTEN — ett plask är ingen del av ett skodon, det är något skodonet orsakar. Och ett exempel på kategorin är fortfarande tillåtet.`;
 
 /**
  * A fingerprint of the rulebook, used to scope the verdict cache.

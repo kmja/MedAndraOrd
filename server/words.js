@@ -281,7 +281,7 @@ export const WORDS = [
   { word: 'café', forbidden: ['kaffe', 'fika', 'bulle', 'sitta', 'servera'] },
   { word: 'krog', forbidden: ['mat', 'öl', 'restaurang', 'servera', 'kväll'] },
   { word: 'hotell', forbidden: ['sova', 'rum', 'resa', 'boka', 'gäst'] },
-  { word: 'kyrka', forbidden: ['gud', 'präst', 'torn', 'gudstjänst', 'bön', 'altare', 'församling'] },
+  { word: 'kyrka', forbidden: ['gud', 'präst', 'torn', 'gudstjänst', 'bön', 'altare', 'församling', 'moské', 'synagoga', 'tempel'] },
   { word: 'slott', forbidden: ['kung', 'stor', 'torn', 'gammal', 'byggnad'] },
   { word: 'torn', forbidden: ['hög', 'byggnad', 'upp', 'smal', 'klättra'] },
   { word: 'museum', forbidden: ['gammal', 'utställning', 'konst', 'besöka', 'föremål'] },

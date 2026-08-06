@@ -350,22 +350,6 @@ test('rule 5 refuses a part standing in for the whole', () => {
   }
 });
 
-test('rule 5 is checked against the guess, because step 1 cannot see the answer', () => {
-  // Every other rule is a property of the clue alone. "Is this a part of the
-  // answer?" needs an answer to be a part OF, and the guesser is blind — so
-  // the check has to happen once it has its own guess, or it is unanswerable.
-  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
-    assert.match(prompt, /pröva regel 5 mot din egen gissning/);
-    // Stated in step 1, applied in step 2 — the rule must point forward, or
-    // the model will try to judge it with information it does not have.
-    assert.ok(
-      prompt.indexOf('5. Pekar ut en DEL') < prompt.indexOf('pröva regel 5 mot din egen gissning'),
-      'the rule must be stated before the step that applies it',
-    );
-    assert.match(prompt, /se STEG 2/);
-  }
-});
-
 test('rule 5 does not swallow the evocative clues rule 4 was fixed to allow', () => {
   // The obvious phrasing of rule 5 — "the clue must be substitutable for the
   // answer" — also refuses "blött plask", which is the clue rule 4 was
@@ -373,7 +357,7 @@ test('rule 5 does not swallow the evocative clues rule 4 was fixed to allow', ()
   // a part sits IN the thing; a description says what it does or causes.
   for (const prompt of [guesserSystemPrompt(6), batchGuesserSystemPrompt()]) {
     assert.match(prompt, /något ordet gör, orsakar, används till, eller påminner om/);
-    assert.match(prompt, /Ett plask är ingen del av ett skodon/);
+    assert.match(prompt, /ett plask är ingen del av ett skodon/);
     // And the worked contrast must show both sides, or it reads as a ban on
     // association in general.
     assert.match(prompt, /"sväva över taken"\s+TILLÅTEN/);
@@ -451,5 +435,45 @@ test('retries are allowed to wander, the first answer is not', () => {
     assert.ok(retryTemperature(n) >= retryTemperature(n - 1), 'must not narrow as it retries');
     // Sent verbatim in a request body, so it must not carry binary float noise.
     assert.equal(retryTemperature(n), Math.round(retryTemperature(n) * 10) / 10);
+  }
+});
+
+test('rule 6 refuses a sibling standing in for the answer', () => {
+  // "moské" and "synagoga" both solved kyrka. A mosque is not a church — it is
+  // another thing of the same kind — so the clue says only "something in this
+  // category" and the letter count does the rest of the work.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /6\. Pekar ut något ANNAT av samma slag/);
+    assert.match(prompt, /syskonsak/);
+    assert.match(prompt, /bryter mot 1–6/, 'a rule that is listed must be enforced');
+  }
+});
+
+test('rule 6 keeps the example-of-the-category clue it sits next to', () => {
+  // The prompt explicitly allows "nilen" för flod. That is an INSTANCE of the
+  // answer and must survive — the two relations look alike and the difference
+  // is the whole rule, so the prompt has to draw it in one place.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /egennamn och kända exempel på kategorin är TILLÅTNA/);
+    assert.match(prompt, /EXEMPEL PÅ svaret är tillåtet, en SYSKONSAK till svaret är det inte/);
+    // The operational test the model is asked to apply, not just the label.
+    assert.match(prompt, /kan man säga "det här ÄR ett\/en <ordet>"\?/);
+  }
+});
+
+test('both relation rules are applied where the answer is known', () => {
+  // Every other rule is a property of the clue alone. "Is this a part of the
+  // answer?" and "is this a sibling of the answer?" both need an answer to be
+  // a part or a sibling OF, and the guesser is blind — so the check has to
+  // happen once it has its own guess, or it is unanswerable. Stating them in
+  // step 1 and applying them in step 2 is the only order that works.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    for (const rule of ['5. Pekar ut en DEL av saken', '6. Pekar ut något ANNAT av samma slag']) {
+      assert.ok(
+        prompt.indexOf(rule) < prompt.indexOf('pröva regel 5 och 6 mot din egen gissning'),
+        `${rule} must be stated before the step that applies it`,
+      );
+    }
+    assert.equal((prompt.match(/se STEG 2/g) ?? []).length, 2, 'both rules must point forward');
   }
 });
