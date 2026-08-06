@@ -249,6 +249,7 @@ const CLUE_RULES = `STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 2. Bokstaverar eller rimmar sig fram, eller på annat sätt syftar på ordets stavning eller uttal i stället för dess betydelse (t.ex. "börjar på M", "rimmar på hot", uppräkning av bokstäver).
 3. Fungerar som en lucka att fylla i i stället för en beskrivning: ett ordled som bara är tänkt att sättas ihop med det sökta ordet till en sammansättning (t.ex. "gräv" för att leda till grävskopa). Testet är enkelt: beskriver ledtråden vad saken ÄR, eller pekar den bara ut vilket ord som råkar sluta sammansättningen? Det senare är otillåtet.
 4. Är en uppräkning i stället för en formulering: flera fristående utpekanden på rad, som var för sig associerar till svaret men inte bygger EN språklig enhet ("rep gnista damm", "murken planka flis"). Testet är grammatiskt, inte semantiskt: bildar orden en fras med ett huvudord och dess bestämningar, eller en sats? Då är den tillåten. Är det tre saker uppradade efter varandra är den det inte.
+5. Pekar ut en DEL av saken i stället för saken själv: ett föremål, en beståndsdel eller de människor som hör till svaret, men som inte säger vad svaret är ("propeller" för en helikopter, "kugge" för ett urverk). Delen leder till helheten bara genom att man råkar veta var delen brukar sitta, och det är en uppslagning, inte en formulering. Den här regeln kan du först pröva när du vet vad du skulle gissa — se STEG 2.
 
 JÄMFÖR NOGA — skillnaden är strukturen, aldrig antalet ord:
   "blött plask"        TILLÅTEN. Adjektiv + substantiv som kongruerar: ett plask som är blött. En fras.
@@ -256,6 +257,12 @@ JÄMFÖR NOGA — skillnaden är strukturen, aldrig antalet ord:
   "en glimt av frost"  TILLÅTEN. Fyra ord, en fras.
   "gnista i mörkret"   TILLÅTEN. Substantiv med prepositionsbestämning.
   "rep gnista damm"    OTILLÅTEN. Tre substantiv utan något som binder dem.
+
+JÄMFÖR OCKSÅ — delen mot beskrivningen (regel 5):
+  "propeller"          OTILLÅTEN. Propellern sitter PÅ saken; den säger inte vad saken är.
+  "kugge"              OTILLÅTEN. Samma sak: en beståndsdel man slår upp helheten ur.
+  "sväva över taken"   TILLÅTEN. Vad saken GÖR, inte något den består av.
+  "mäter dygnet"       TILLÅTEN. En funktion, inte en del.
 
 Ett ensamt ord eller en ensam sammansättning är alltid en giltig formulering och ska aldrig avvisas enligt regel 4. Är du osäker på om något är en fras — tillåt den. Regel 4 finns för att stoppa sökordslistor, inte för att beskatta korta ledtrådar.
 
@@ -265,7 +272,7 @@ Lika viktigt: **egennamn och kända exempel på kategorin är TILLÅTNA** — "n
 
 Detsamma gäller **förkortade** exempel: "sept" och "okt" är samma drag som "nilen", och ska bedömas lika. Förkortningar är inte förbjudna. Det går ändå inte att veta om "jan" är tänkt som en förkortning eller som ett namn, och en regel som inte går att tillämpa konsekvent gör mer skada än nytta — samma ledtråd måste få samma dom varje gång.
 
-Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska, hänger ihop språkligt och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–4.`;
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska, hänger ihop språkligt och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–5.`;
 
 /**
  * The bank is mostly nouns, so a model with no class given will reach for one.
@@ -278,6 +285,15 @@ function classLine(wordClass) {
 }
 
 const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga dig vad spelaren *pekar mot*, inte vad orden betyder var för sig: en egen sammansättning eller en oväntad bild är ett utsträckt finger, inte en definition. Är ledtråden gåtfull, gör tankevändan innan du svarar — det är den vändan spelet handlar om.`;
+
+// Rule 5 is the one rule that cannot be applied in step 1. Every other rule is
+// a property of the clue by itself, but "is this a part of the answer?" needs
+// an answer to be a part OF — and the guesser never sees the target. So it is
+// checked here instead, against the guesser's own guess, once it has one.
+// Blindness is untouched: this reads the model's guess, never the word.
+const PART_CHECK = `Innan du svarar: pröva regel 5 mot din egen gissning. Sitter ledtrådens sak i eller på det ord du landat i, utan att säga vad ordet ÄR? Då är ledtråden otillåten — svara med legal: false och nämn att ledtråden pekar ut en del, i stället för att gissa.
+
+Är ledtråden i stället något ordet gör, orsakar, används till, eller påminner om, är den TILLÅTEN. Ett plask är ingen del av ett skodon — det är något skodonet orsakar. Den skillnaden är hela regeln: en del sitter i saken, en beskrivning säger något om den.`;
 
 /**
  * A fingerprint of the rulebook, used to scope the verdict cache.
@@ -294,7 +310,7 @@ const GUESS_FORM = `Läs ledtråden som den är tänkt, inte bokstavligt. Fråga
  * IS bumping the version, and stale rulings cannot outlive the rules.
  */
 export const RULEBOOK_ID = createHash('sha1')
-  .update([CLUE_CULTURE, CLUE_RULES, GUESS_FORM].join(' '))
+  .update([CLUE_CULTURE, CLUE_RULES, GUESS_FORM, PART_CHECK].join('|'))
   .digest('hex')
   .slice(0, 8);
 
@@ -319,6 +335,8 @@ STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablera
 ${classLine(wordClass)}
 
 ${GUESS_FORM}
+
+${PART_CHECK}
 
 Skriv också EN kort mening om hur du läste ledtråden och varför den ledde dig till just det ordet. Den visas för spelaren, så den ska förklara din tolkning — inte upprepa ledtråden. Max 100 tecken.
 
@@ -415,6 +433,8 @@ ${CLUE_RULES}
 STEG 2 — om ledtråden är tillåten: gissa ordet. Exakt ETT riktigt, etablerat svenskt ord i grundform (obestämd form singular för substantiv, infinitiv för verb, grundform för adjektiv) med exakt det antal bokstäver som anges för just den ledtråden. Anges en ordklass ska gissningen vara av den ordklassen; anges ingen är ordet ett substantiv. Hitta inte på ord.
 
 ${GUESS_FORM}
+
+${PART_CHECK}
 
 Skriv också för varje gissning EN kort mening om hur du läste ledtråden. Max 100 tecken.
 

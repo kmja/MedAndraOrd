@@ -209,7 +209,7 @@ test('the guesser prompt requires a clue to read as Swedish', () => {
     // "trögt snöre yta" opened with the same word as the allowed "trögt
     // skodon". Everything quoted inside rule 4 is an illustration of breaking
     // it, so pick those up as well.
-    const ruleFour = prompt.slice(prompt.indexOf('4. Är en uppräkning'), prompt.indexOf('JÄMFÖR NOGA'));
+    const ruleFour = prompt.slice(prompt.indexOf('4. Är en uppräkning'), prompt.indexOf('\n5. Pekar ut'));
     refused.push(...[...ruleFour.matchAll(/"([^"]+)"/g)].map((m) => m[1]));
     // Whole-string containment was too weak a test: "trögt skodon" is not a
     // prefix of "trögt snöre yta", yet they open with the same word, which is
@@ -323,5 +323,59 @@ test('the rulebook fingerprint changes when the rulebook does', async () => {
   // Derived from the rule text, not typed in by hand — a literal would drift
   // the moment someone edited a rule without remembering to bump it.
   assert.match(source, /RULEBOOK_ID = createHash/);
-  assert.match(source, /\.update\(\[CLUE_CULTURE, CLUE_RULES, GUESS_FORM\]/);
+
+  // And it must cover ALL of it. Naming the pieces in the hash by hand has the
+  // same failure mode as a version number: add a section to the prompt, forget
+  // to add it here, and rulings survive an edit they should not have. So check
+  // the real property — every shared block the prompts interpolate is hashed.
+  const hashed = source.match(/\.update\(\[([^\]]+)\]/)[1];
+  const interpolated = new Set([...source.matchAll(/\$\{([A-Z][A-Z_]+)\}/g)].map((m) => m[1]));
+  assert.ok(interpolated.size >= 3, 'expected the prompts to be built from shared blocks');
+  for (const block of interpolated) {
+    assert.ok(
+      hashed.includes(block),
+      `${block} goes into a prompt but not into RULEBOOK_ID — edits to it would not expire cached rulings`,
+    );
+  }
+});
+
+test('rule 5 refuses a part standing in for the whole', () => {
+  // "altare" and "församling" both solved kyrka. Neither says what a church
+  // IS — an altar stands inside one — so they read as a lookup rather than a
+  // clue, which is the thing this game is meant not to reward.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /5\. Pekar ut en DEL av saken/);
+    assert.match(prompt, /de människor som hör till svaret/, 'must cover participants, not just objects');
+  }
+});
+
+test('rule 5 is checked against the guess, because step 1 cannot see the answer', () => {
+  // Every other rule is a property of the clue alone. "Is this a part of the
+  // answer?" needs an answer to be a part OF, and the guesser is blind — so
+  // the check has to happen once it has its own guess, or it is unanswerable.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /pröva regel 5 mot din egen gissning/);
+    // Stated in step 1, applied in step 2 — the rule must point forward, or
+    // the model will try to judge it with information it does not have.
+    assert.ok(
+      prompt.indexOf('5. Pekar ut en DEL') < prompt.indexOf('pröva regel 5 mot din egen gissning'),
+      'the rule must be stated before the step that applies it',
+    );
+    assert.match(prompt, /se STEG 2/);
+  }
+});
+
+test('rule 5 does not swallow the evocative clues rule 4 was fixed to allow', () => {
+  // The obvious phrasing of rule 5 — "the clue must be substitutable for the
+  // answer" — also refuses "blött plask", which is the clue rule 4 was
+  // repaired for. A boot is not a wet splash. So the line drawn is narrower:
+  // a part sits IN the thing; a description says what it does or causes.
+  for (const prompt of [guesserSystemPrompt(6), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /något ordet gör, orsakar, används till, eller påminner om/);
+    assert.match(prompt, /Ett plask är ingen del av ett skodon/);
+    // And the worked contrast must show both sides, or it reads as a ban on
+    // association in general.
+    assert.match(prompt, /"sväva över taken"\s+TILLÅTEN/);
+    assert.match(prompt, /"propeller"\s+OTILLÅTEN/);
+  }
 });
