@@ -350,6 +350,45 @@ export function extractWord(text) {
   return m ? normalize(m[0]) : null;
 }
 
+export const MAX_NAME_LENGTH = 20;
+
+// A speed bump, not moderation. Substring matching over-blocks — "hora" also
+// catches "Horacio" — and that is the side to err on for a board a family
+// scrolls through, but it is trivially defeated by anyone trying, so do not
+// mistake this for a safety feature. The real protection is that a board is
+// per-day and per-word, and that nothing here is public by default.
+const NAME_BLOCKLIST = [
+  'hitler', 'nazi', 'fitta', 'kuk', 'hora', 'neger', 'fuck', 'shit', 'cunt',
+  'bög', 'jävla', 'satan', 'knulla', 'bitch', 'idiot',
+];
+
+/**
+ * A display name that is safe to put on the board, or null if nothing usable
+ * survives. Pure, so the browser runs the same function and a name the client
+ * accepts is never one the server then silently drops.
+ *
+ * NFKC first, so fullwidth and other lookalike encodings collapse to the
+ * characters the blocklist is written in. Then everything outside letters,
+ * digits and a little punctuation goes — which also removes the zero-width
+ * characters that would otherwise let two different names render identically.
+ */
+export function sanitizeName(name) {
+  const s = String(name ?? '')
+    .normalize('NFKC')
+    // Whitespace becomes a space BEFORE the strip, not after. Stripping first
+    // deletes a newline outright and welds the words either side of it
+    // together — "Karl\nAndersson" came out as "KarlAndersson".
+    .replace(/\s+/gu, ' ')
+    .replace(/[^\p{L}\p{N} _\-.]/gu, '')
+    .replace(/ +/g, ' ')
+    .trim()
+    .slice(0, MAX_NAME_LENGTH);
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  if (NAME_BLOCKLIST.some((w) => lower.includes(w))) return null;
+  return s;
+}
+
 /** Local date string (YYYY-MM-DD) in Swedish time — the game day boundary. */
 export function todayInStockholm(now = new Date()) {
   return new Intl.DateTimeFormat('sv-SE', {

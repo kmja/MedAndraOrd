@@ -39,12 +39,72 @@ test('leaderboard sorts ascending and marks the viewer', async () => {
   ]);
 });
 
-test('rows carry no player identity at all', async () => {
-  // No accounts, no names: a row is a clue, a count and a score.
+test('a row carries nothing about a player beyond a chosen name', async () => {
+  // Names are opt-in and are the ONLY thing about a player that may appear.
+  // The player id in particular must never leave the server: it is the cookie
+  // that counts attempts, and publishing it would let anyone impersonate a row.
   const s = new MemoryStore();
   await s.recordBest('d', 'a', 4, 'fyra');
+
+  const [anon] = await s.leaderboard('d', 'a', true);
+  assert.deepEqual(Object.keys(anon).sort(), ['clue', 'count', 'rank', 'score', 'you'],
+    'a player who set no name adds no field');
+
+  await s.setName('a', 'Karl');
+  const [named] = await s.leaderboard('d', 'a', true);
+  assert.deepEqual(Object.keys(named).sort(), ['clue', 'count', 'names', 'rank', 'score', 'you']);
+  assert.deepEqual(named.names, ['Karl']);
+  assert.ok(!('pid' in named) && !('pids' in named), 'player ids must not reach a client');
+});
+
+test('names survive the day they were set on', async () => {
+  // Everything else is scoped to a puzzle and expires with it. A name is not:
+  // it belongs to the player, and expiring it would quietly anonymise someone
+  // who came back tomorrow and did nothing wrong.
+  const s = new MemoryStore();
+  await s.setName('a', 'Karl');
+  await s.recordBest('2026-08-06:255', 'a', 4, 'fyra');
+  await s.recordBest('2026-08-07:100', 'a', 6, 'sextec');
+  for (const puzzle of ['2026-08-06:255', '2026-08-07:100']) {
+    const [row] = await s.leaderboard(puzzle, 'a', true);
+    assert.deepEqual(row.names, ['Karl'], `name missing on ${puzzle}`);
+  }
+});
+
+test('a shared row lists its named players and still counts the anonymous ones', async () => {
+  // Identical clues share a row, and the best clue of the day is the likeliest
+  // to be shared — so this is exactly the row where names are worth reading.
+  // A player with no name is on the row but not in the list, and a count that
+  // disagreed with the names would look like a bug.
+  const s = new MemoryStore();
+  for (const pid of ['a', 'b', 'c']) await s.recordBest('d', pid, 4, 'guld');
+  await s.setName('a', 'Karl');
+  await s.setName('b', 'Anna');
   const [row] = await s.leaderboard('d', 'a', true);
-  assert.deepEqual(Object.keys(row).sort(), ['clue', 'count', 'rank', 'score', 'you']);
+  assert.equal(row.count, 3);
+  assert.deepEqual(row.names, ['Karl', 'Anna']);
+});
+
+test('names are shown even while the clues are still hidden', async () => {
+  // The clues are the answer key and stay hidden until you are done for the
+  // day. Who is on the board gives nothing away, and hiding it would leave the
+  // board unreadable in the state most people see it in.
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4, 'fyra');
+  await s.setName('a', 'Karl');
+  const [row] = await s.leaderboard('d', 'someone-else', false);
+  assert.ok(!('clue' in row), 'the clue must still be withheld');
+  assert.deepEqual(row.names, ['Karl']);
+});
+
+test('clearing a name takes it off the board', async () => {
+  const s = new MemoryStore();
+  await s.recordBest('d', 'a', 4, 'fyra');
+  await s.setName('a', 'Karl');
+  await s.setName('a', null);
+  const [row] = await s.leaderboard('d', 'a', true);
+  assert.ok(!('names' in row));
+  assert.equal(await s.getName('a'), null);
 });
 
 test('clue verdict cache is per puzzle, not per day', async () => {

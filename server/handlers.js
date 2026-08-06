@@ -7,7 +7,7 @@ import {
   AiUnavailableError, MAX_ATTEMPTS,
 } from './game.js';
 import { RULEBOOK_ID } from './ai.js';
-import { normalize, todayInStockholm, clueLimitFor } from './util.js';
+import { normalize, todayInStockholm, clueLimitFor, sanitizeName, MAX_NAME_LENGTH } from './util.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
 // both Express and Vercel functions provide. Keeping them here means there is
@@ -119,11 +119,12 @@ export async function stateHandler(req, res) {
   const { word, forbidden, letterCount } = today;
 
   const puzzle = puzzleKey(date, today.index);
-  const [attempts, best, standing, dayStats] = await Promise.all([
+  const [attempts, best, standing, dayStats, name] = await Promise.all([
     store.getAttempts(puzzle, pid),
     store.getBest(puzzle, pid),
     store.standing(puzzle, pid),
     store.dayStats(puzzle),
+    store.getName(pid),
   ]);
   // The winning clues are the answer key. Only players who are done for the
   // day — solved it, or out of attempts — get to see them.
@@ -144,10 +145,38 @@ export async function stateHandler(req, res) {
     standing,
     dayAverage: dayStats.average,
     solvers: dayStats.solvers,
+    name,
+    maxNameLength: MAX_NAME_LENGTH,
     practiceEnabled: PRACTICE_ENABLED,
     bankSize: WORDS.length,
     durable: store.durable,
   });
+}
+
+/**
+ * Set or clear the player's display name.
+ *
+ * The name attaches to the anonymous cookie that was already there for
+ * counting attempts — it does not become an account, and nothing about a
+ * player is stored beyond the name and the day's score. An empty submission
+ * clears it, so a player can take their name back off the board.
+ */
+export async function nameHandler(req, res) {
+  const store = getStore();
+  const pid = getPlayerId(req, res);
+  const body = parseBody(req);
+  const raw = typeof body.name === 'string' ? body.name : '';
+
+  if (raw.trim() === '') {
+    await store.setName(pid, null);
+    return send(res, 200, { name: null });
+  }
+  const name = sanitizeName(raw);
+  if (!name) {
+    return send(res, 400, { error: 'Det namnet går inte att använda. Prova ett annat.' });
+  }
+  await store.setName(pid, name);
+  send(res, 200, { name });
 }
 
 export async function randomHandler(req, res) {

@@ -248,6 +248,25 @@ function ResponseCard({ entry, pending, clue, letterCount, latest, children, spi
   );
 }
 
+/**
+ * The footnote under a clue: who wrote it, and how many people did.
+ *
+ * Rows are grouped by clue, so several players can share one — and the best
+ * clue of the day is the likeliest to be shared, which is exactly the row
+ * where names are worth reading. Names are listed with the count still
+ * carried, because a player who never set a name is on the row but not in
+ * the list, and a count that disagreed with the names would look like a bug.
+ */
+function namesText(row) {
+  const names = row.names ?? [];
+  const missing = row.count - names.length;
+  if (!names.length) return row.count > 1 ? `${row.count} spelare` : null;
+  const listed = names.slice(0, 3).join(', ');
+  const rest = names.length - Math.min(names.length, 3) + missing;
+  if (rest > 0) return `${listed} +${rest}`;
+  return listed;
+}
+
 function Leaderboard({ rows, standing, compact, capped = true }) {
   const text = standingText(standing);
 
@@ -283,11 +302,9 @@ function Leaderboard({ rows, standing, compact, capped = true }) {
                 ) : (
                   <span className="lb-clue lb-hidden">••••••</span>
                 )}
-                {(row.count > 1 || row.you) && (
+                {(row.count > 1 || row.you || row.names) && (
                   <span className="lb-by">
-                    {[row.you && 'din ledtråd', row.count > 1 && `${row.count} spelare`]
-                      .filter(Boolean)
-                      .join(' · ')}
+                    {[row.you && 'din ledtråd', namesText(row)].filter(Boolean).join(' · ')}
                   </span>
                 )}
               </span>
@@ -324,7 +341,68 @@ const canPlayOn = (attemptsLeft) => attemptsLeft == null || attemptsLeft > 0;
 const attemptsPhrase = (attemptsLeft) =>
   (attemptsLeft == null ? 'obegränsat antal försök' : `${attemptsLeft} försök kvar`);
 
-function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, onClose, dialogRef }) {
+/**
+ * Put your name on the board, from the moment it is worth putting there.
+ *
+ * The win is the only point where a name means anything — before it there is
+ * no row to attach it to — so it is asked for here and nowhere else. Saving is
+ * optimistic about nothing: the board only updates once the server has taken
+ * the name, because the server sanitises it and may hand back something other
+ * than what was typed.
+ */
+function NameForm({ name, maxLength, onSave }) {
+  const [value, setValue] = useState(name ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  // A name set in an earlier round arrives after this component mounts.
+  useEffect(() => { setValue(name ?? ''); }, [name]);
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(value);
+      setSaved(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="name-form" onSubmit={submit}>
+      <label htmlFor="player-name">
+        {name ? 'Ditt namn på topplistan' : 'Skriv ditt namn på topplistan'}
+      </label>
+      <div className="name-row">
+        <input
+          id="player-name"
+          value={value}
+          maxLength={maxLength}
+          placeholder="Valfritt"
+          autoComplete="name"
+          onChange={(e) => { setValue(e.target.value); setSaved(false); }}
+        />
+        <button type="submit" className="ghost" disabled={saving || value === (name ?? '')}>
+          {saving ? 'Sparar…' : 'Spara'}
+        </button>
+      </div>
+      {error && <p className="name-error">{error}</p>}
+      {saved && !error && (
+        <p className="name-ok">{value.trim() ? 'Sparat.' : 'Namnet är borttaget.'}</p>
+      )}
+    </form>
+  );
+}
+
+function WinDialog({
+  win, word, attemptsLeft, leaderboard, standing, name, maxNameLength, onSaveName,
+  onImprove, onClose, dialogRef,
+}) {
   return (
     <dialog ref={dialogRef} className="win-dialog" onClose={onClose} aria-labelledby="win-title">
       {win && (
@@ -355,6 +433,8 @@ function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, 
           </h2>
 
           <Leaderboard rows={leaderboard} standing={standing} compact />
+
+          <NameForm name={name} maxLength={maxNameLength} onSave={onSaveName} />
 
           <div className="win-actions">
             {canPlayOn(attemptsLeft) ? (
@@ -666,6 +746,20 @@ export default function App() {
     }
   }
 
+  /**
+   * Save the display name and refresh the board so the change is visible where
+   * it matters. The server sanitises, so what comes back is what gets stored —
+   * showing the typed text instead would be a lie the next reload corrects.
+   */
+  async function saveName(raw) {
+    const { name } = await api('/api/name', {
+      method: 'POST',
+      body: JSON.stringify({ name: raw }),
+    });
+    const fresh = await api('/api/state');
+    setState((prev) => ({ ...prev, ...fresh, name }));
+  }
+
   // Reopening the round: close the celebration and put the cursor back where
   // the next clue goes.
   function startImproving() {
@@ -904,6 +998,9 @@ export default function App() {
         attemptsLeft={state.attemptsLeft}
         leaderboard={state.leaderboard}
         standing={state.standing}
+        name={state.name}
+        maxNameLength={state.maxNameLength}
+        onSaveName={saveName}
         onImprove={startImproving}
         onClose={closeWin}
       />

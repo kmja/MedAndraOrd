@@ -175,13 +175,32 @@ målet, inte mot taket.
   Samma cache är kostnadskontrollen (typiskt **1** modellanrop per inskickning,
   se ovan; upprepade ledtrådar kostar noll).
 - **Servern räknar all poäng själv** — klienten rapporterar bara ledtrådstexten.
-- **5 försök per dag** per spelare (anonym httpOnly-cookie).
+- **Antal försök per dag** styrs av `ORDKNAPP_MAX_ATTEMPTS`. Osatt = obegränsat,
+  vilket är läget under speltestet; sätt `5` för att ta tillbaka gränsen. Ett
+  trasigt värde faller tillbaka på obegränsat — `0` läst som en gräns hade
+  avslutat spelet innan det börjat. `Infinity` överlever inte JSON, så tråden
+  skickar `null` för ”ingen gräns” och klienten läser `null` som ja, inte som 0.
 - Rate limiting per spelare på ledtråds-endpointen.
-- **Inga konton, inga namn.** Topplistan listar *ledtrådar*, inte spelare. Alla
-  som skrivit samma ledtråd (normaliserat, så versaler och mellanslag inte
-  splittrar raden) delar en rad med antal: *”3 spelare”*. Den enda identiteten
-  som finns är en anonym httpOnly-cookie, och den används bara för att räkna
-  försök, hålla ditt bästa resultat och märka din egen rad.
+- **Inga konton, men frivilliga namn.** Topplistan listar fortfarande
+  *ledtrådar*, inte spelare: alla som skrivit samma ledtråd (normaliserat, så
+  versaler och mellanslag inte splittrar raden) delar en rad. Efter en lösning
+  kan man skriva ett namn som fästs vid raden — men det är helt frivilligt, och
+  raden räknar fortfarande alla som skrivit ledtråden, även de utan namn.
+  Identiteten är kvar som en anonym httpOnly-cookie: den räknar försök, håller
+  ditt bästa resultat, märker din egen rad och är nu också det namnet hänger på.
+  Spelar-id:t lämnar aldrig servern — det finns ett test för det, för annars
+  hade vem som helst kunnat göra anspråk på en rad.
+- **Namn sanerar i kod, inte i prompten** (`sanitizeName()` i `util.js`, samma
+  rena funktion som webben kör, så klienten aldrig accepterar ett namn servern
+  sedan tyst ändrar). NFKC först, så breda och andra lookalike-kodningar faller
+  ihop på tecknen blocklistan är skriven i; sedan bort med allt utom bokstäver,
+  siffror och lite skiljetecken — vilket också tar nollbreddstecknen som annars
+  låter två olika namn se identiska ut. Blocklistan är en farthinder, inte
+  moderering: den matchar delsträngar och blockerar därför även ”Horacio”, och
+  det är rätt håll att fela åt här, men den stoppar ingen som anstränger sig.
+- **Namn är knutna till spelaren, inte till dagen.** Allt annat är scopat till
+  ett pussel och försvinner med det. Ett namn gör inte det — det skulle tyst
+  anonymisera någon som kom tillbaka dagen efter.
 - **Radens poäng härleds ur ledtråden** (`clueLength`), inte ur ett separat
   lagrat tal — ordningen kommer från ledtråden, så siffran måste göra det med,
   annars kan listan se felsorterad ut fast sorteringen var rätt.
@@ -196,8 +215,10 @@ målet, inte mot taket.
   lika många termer. Obekanta tecken (é, à) får ungefär medelfrekvensen, så att
   slå i ett exotiskt tecken inte blir ett gratis sätt att vinna en utslagning.
 - **Vinnarledtrådarna är facit.** Topplistan visar ledtråden som det viktiga och
-  namnet som fotnot — men servern skickar dem först när spelaren är klar för
-  dagen (löst ordet eller slut på försök). Annars skulle vem som helst kunna
+  namnet som fotnot — men servern skickar *ledtrådarna* först när spelaren är
+  klar för dagen (löst ordet eller slut på försök). Namnen gatas inte: vem som
+  står på listan avslöjar ingenting, och att dölja det hade gjort listan
+  oläsbar i precis det läge de flesta ser den. Annars skulle vem som helst kunna
   kopiera den bästa ledtråden. Gatingen sitter i `handlers.js` (`reveal`), inte i
   klienten.
 

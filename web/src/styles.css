@@ -560,7 +560,6 @@ h2 { margin: 0 0 12px; font-family: var(--serif); font-size: 1.15rem; }
 .lb-by { font-size: 0.72rem; color: var(--faint); }
 .lb-score { font-variant-numeric: tabular-nums; font-weight: 700; }
 .lb-locked { margin: 10px 0 0; font-size: 0.78rem; color: var(--muted); }
-.name-form { display: flex; gap: 8px; margin-top: 14px; }
 
 /* ---- misc ---- */
 .practice-controls { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
@@ -598,3 +597,42 @@ footer li { margin-bottom: 3px; }
   .thinking i { animation: none; }
   .sparkles { display: none; }
 }
+
+/* The name form on the win card. Deliberately quiet: putting your name on the
+   board is optional, and a prominent form would read as something you have to
+   do before you are finished. */
+.name-form {
+  margin: 0.9rem 0 0;
+  text-align: left;
+}
+.name-form label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.name-row {
+  display: flex;
+  gap: 0.5rem;
+}
+.name-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  font-size: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+.name-row button { flex: 0 0 auto; }
+.name-row button:disabled { opacity: 0.45; cursor: default; }
+.name-error, .name-ok {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+}
+.name-error { color: var(--alert); }
+.name-ok { color: var(--muted); }

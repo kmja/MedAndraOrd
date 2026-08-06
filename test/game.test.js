@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
   dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING, inflectionsOf,
-  clueLimitFor, suggestedLimit, compoundStemsOf, looksInflected,
+  clueLimitFor, suggestedLimit, compoundStemsOf, looksInflected, sanitizeName, MAX_NAME_LENGTH,
   letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
@@ -725,4 +725,40 @@ test('the attempt cap reads from the environment, and bad values do not lock the
   for (const bad of ['0', '-1', 'abc', '2.5', 'NaN']) {
     assert.equal(attemptCapFrom(bad), Infinity, `${bad} should not become a cap`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Display names.
+
+test('sanitizeName strips what a board should not render', () => {
+  assert.equal(sanitizeName('  Karl   Andersson  '), 'Karl Andersson');
+  assert.equal(sanitizeName('Åsa-Britt_2'), 'Åsa-Britt_2');
+  // Zero-width characters would let two different names render identically,
+  // which is impersonation with no visible tell.
+  assert.equal(sanitizeName('Ka​rl'), 'Karl');
+  // Markup and control characters never reach a DOM as text by accident.
+  assert.equal(sanitizeName('<script>x</script>'), 'scriptxscript');
+  assert.equal(sanitizeName('a\nb'), 'a b');
+  assert.equal(sanitizeName('x'.repeat(50)).length, MAX_NAME_LENGTH);
+  for (const empty of ['', '   ', '!!!', '🎉', null, undefined]) {
+    assert.equal(sanitizeName(empty), null, `expected null for ${JSON.stringify(empty)}`);
+  }
+  // Digits are allowed, so a name that is only digits is a real choice rather
+  // than an empty one. The handler guards the type; this just must not throw.
+  assert.equal(sanitizeName(42), '42');
+});
+
+test('sanitizeName sees through lookalike encodings', () => {
+  // NFKC first, so a fullwidth spelling collapses onto the characters the
+  // blocklist is actually written in rather than sailing past it.
+  assert.equal(sanitizeName('ｆｕｃｋ'), null);
+  assert.equal(sanitizeName('Hitler'), null);
+  assert.equal(sanitizeName('nazi-Kalle'), null);
+});
+
+test('the blocklist over-blocks, and that is the intended direction', () => {
+  // "hora" also catches "Horacio". For a board a family scrolls through, a
+  // rejected name someone retypes beats a slur nobody can remove — but this is
+  // a speed bump, not moderation, and it should not be mistaken for one.
+  assert.equal(sanitizeName('Horacio'), null);
 });

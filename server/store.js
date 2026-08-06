@@ -31,10 +31,11 @@ function groupAndRank(entries, { reveal, viewerPid }) {
     const key = clue ? normalize(clue) : `\u0000${pid}`;
     let g = groups.get(key);
     if (!g) {
-      g = { clue: clue ?? null, score, count: 0, you: false };
+      g = { clue: clue ?? null, score, count: 0, you: false, pids: [] };
       groups.set(key, g);
     }
     g.count += 1;
+    g.pids.push(pid);
     if (pid === viewerPid) g.you = true;
   }
 
@@ -61,8 +62,32 @@ function groupAndRank(entries, { reveal, viewerPid }) {
       score: row.clue ? clueLength(row.clue) : row.score,
       count: row.count,
       you: row.you,
+      // Internal: stripped by attachNames before the row reaches a client.
+      pids: row.pids,
       ...(reveal ? { clue: row.clue } : {}),
     };
+  });
+}
+
+/**
+ * Swap each row's player ids for display names, in one lookup for the whole
+ * board rather than one per row.
+ *
+ * Names are deliberately NOT gated on `reveal`. The winning clues are the
+ * answer key and stay hidden until you are done for the day; who is on the
+ * board gives nothing away, and hiding it would make the board unreadable in
+ * exactly the state most people see it in.
+ *
+ * A row can be shared by several players, so `names` is a list. Players who
+ * never set one simply do not appear in it, which is why `count` stays the
+ * source of truth for how many people are on a row.
+ */
+async function attachNames(rows, lookup) {
+  const ids = [...new Set(rows.flatMap((r) => r.pids))];
+  const names = ids.length ? await lookup(ids) : new Map();
+  return rows.map(({ pids, ...row }) => {
+    const found = pids.map((p) => names.get(p)).filter(Boolean);
+    return found.length ? { ...row, names: found } : row;
   });
 }
 
@@ -77,6 +102,10 @@ class MemoryStore {
     this.attempts = new Map(); // `${puzzle}:${pid}` -> count
     this.bests = new Map(); // `${puzzle}` -> Map(pid -> { score, clue })
     this.clues = new Map(); // `${puzzle}:${clue}` -> verdict
+    // Names are the one thing keyed by PLAYER rather than by puzzle: a name
+    // set today should still be yours tomorrow, so it must not expire with the
+    // board it happened to be set on.
+    this.names = new Map(); // pid -> display name
     this.durable = false;
   }
 
@@ -128,13 +157,27 @@ class MemoryStore {
    * hasn't finished could simply copy the best one, so the server omits them
    * rather than trusting the client to hide them.
    */
+  async setName(pid, name) {
+    if (name == null) this.names.delete(pid);
+    else this.names.set(pid, name);
+  }
+
+  async getName(pid) {
+    return this.names.get(pid) ?? null;
+  }
+
+  async namesFor(pids) {
+    return new Map(pids.map((p) => [p, this.names.get(p)]).filter(([, n]) => n));
+  }
+
   async leaderboard(puzzle, viewerPid, reveal = false) {
     const day = this.bests.get(puzzle);
     if (!day) return [];
-    return groupAndRank(
+    const rows = groupAndRank(
       [...day.entries()].map(([pid, best]) => ({ pid, score: best.score, clue: best.clue })),
       { reveal, viewerPid },
     );
+    return attachNames(rows, (ids) => this.namesFor(ids));
   }
 
   /**
@@ -185,6 +228,7 @@ class FileStore extends MemoryStore {
       const raw = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
       this.attempts = new Map(raw.attempts ?? []);
       this.clues = new Map(raw.clues ?? []);
+      this.names = new Map(raw.names ?? []);
       this.bests = new Map((raw.bests ?? []).map(([d, entries]) => [d, new Map(entries)]));
     } catch {
       // fresh store
@@ -203,6 +247,7 @@ class FileStore extends MemoryStore {
           JSON.stringify({
             attempts: [...this.attempts],
             clues: [...this.clues],
+            names: [...this.names],
             bests: [...this.bests].map(([d, m]) => [d, [...m]]),
           }),
         );
@@ -214,6 +259,7 @@ class FileStore extends MemoryStore {
   }
 
   async cacheVerdict(...args) { await super.cacheVerdict(...args); this._save(); }
+  async setName(...args) { await super.setName(...args); this._save(); }
   async incrAttempts(...args) { const n = await super.incrAttempts(...args); this._save(); return n; }
   async recordBest(...args) { const b = await super.recordBest(...args); this._save(); return b; }
 }
@@ -312,7 +358,28 @@ class KvStore {
     const clues = await this._cmd('HMGET', `bestclue:${puzzle}`, ...entries.map((e) => e.pid));
     entries.forEach((e, i) => { e.clue = clues?.[i] ?? null; });
 
-    return groupAndRank(entries, { reveal, viewerPid });
+    return attachNames(groupAndRank(entries, { reveal, viewerPid }), (ids) => this.namesFor(ids));
+  }
+
+  // Names live in one hash keyed by player, not per puzzle, because a name
+  // outlives the board it was set on. No expiry for the same reason — the
+  // entries are tiny, and expiring them would silently anonymise a returning
+  // player who did nothing wrong.
+  async setName(pid, name) {
+    if (name == null) await this._cmd('HDEL', 'names', pid);
+    else await this._cmd('HSET', 'names', pid, name);
+  }
+
+  async getName(pid) {
+    return (await this._cmd('HGET', 'names', pid)) ?? null;
+  }
+
+  /** One HMGET for the whole board rather than one lookup per row. */
+  async namesFor(pids) {
+    const values = await this._cmd('HMGET', 'names', ...pids);
+    const out = new Map();
+    pids.forEach((p, i) => { if (values?.[i]) out.set(p, values[i]); });
+    return out;
   }
 
   /** Averages over every solver, so this reads the whole day's set. */

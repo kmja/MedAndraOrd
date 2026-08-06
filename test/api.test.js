@@ -157,3 +157,55 @@ test('practice mode does not cache an AI failure', async () => {
     'practice caching must be gated on isCacheableVerdict',
   );
 });
+
+test('api/name stores a sanitized name against the cookie, and can clear it', async () => {
+  const [{ default: nameHandler }, { default: stateHandler }] = await Promise.all([
+    import('../api/name.js'),
+    import('../api/state.js'),
+  ]);
+  const first = mockRes();
+  await stateHandler(mockReq(), first);
+  const headers = { cookie: first.headers['set-cookie'].split(';')[0] };
+  assert.equal(first.body.name, null, 'a new player has no name');
+
+  const set = mockRes();
+  await nameHandler(mockReq({ method: 'POST', headers, body: { name: '  Karl  ' } }), set);
+  assert.equal(set.statusCode, 200);
+  assert.equal(set.body.name, 'Karl', 'the stored name is the sanitized one');
+
+  const after = mockRes();
+  await stateHandler(mockReq({ headers }), after);
+  assert.equal(after.body.name, 'Karl', 'and it comes back in state');
+
+  const cleared = mockRes();
+  await nameHandler(mockReq({ method: 'POST', headers, body: { name: '   ' } }), cleared);
+  assert.equal(cleared.body.name, null, 'an empty submission takes the name off the board');
+});
+
+test('api/name refuses a name that sanitizes to nothing', async () => {
+  const { default: nameHandler } = await import('../api/name.js');
+  for (const name of ['!!!', 'hitler', '🎉']) {
+    const res = mockRes();
+    await nameHandler(mockReq({ method: 'POST', body: { name } }), res);
+    assert.equal(res.statusCode, 400, `${name} should be refused`);
+    assert.match(res.body.error, /namnet/i);
+  }
+});
+
+test('a name never travels with the player id that owns it', async () => {
+  // The cookie is the thing that counts attempts and marks your own row.
+  // Publishing it alongside a name would let anyone claim that row.
+  const [{ default: nameHandler }, { default: stateHandler }] = await Promise.all([
+    import('../api/name.js'),
+    import('../api/state.js'),
+  ]);
+  const first = mockRes();
+  await stateHandler(mockReq(), first);
+  const cookie = first.headers['set-cookie'].split(';')[0];
+  const pid = cookie.split('=')[1];
+  await nameHandler(mockReq({ method: 'POST', headers: { cookie }, body: { name: 'Karl' } }), mockRes());
+
+  const after = mockRes();
+  await stateHandler(mockReq({ headers: { cookie } }), after);
+  assert.ok(!JSON.stringify(after.body.leaderboard).includes(pid), 'player id leaked into the board');
+});
