@@ -36,20 +36,35 @@ export class AiUnavailableError extends Error {
  *   { type: 'rejected', reason }
  *   { type: 'correct',  guess }
  *   { type: 'wrong',    guess }
- *   { type: 'ai_failure', guess }
+ *   { type: 'ai_failure', guess, trace }
+ *
+ * `trace` records what every round actually did. A failure here is the one
+ * outcome with no visible cause — the player is told the AI gave no valid
+ * answer and nothing about why, and from the outside a loop that gave up
+ * after one round looks exactly like one that tried four times. It carries
+ * guesses and rulings only; the target never enters it.
  */
 export async function runGuesserLoop({ clue, target, targetLetterCount, wordClass, ai }) {
   const feedback = [];
+  const trace = [];
   let lastGuess = null;
   let blanks = 0;
-  const deadline = Date.now() + GUESS_DEADLINE_MS;
+  const started = Date.now();
+  const deadline = started + GUESS_DEADLINE_MS;
+  const step = (round, event, extra = {}) =>
+    trace.push({ round, ms: Date.now() - started, event, ...extra });
 
   for (let round = 0; round < MAX_GUESS_ROUNDS; round++) {
     // Checked before asking again, not after: another round could take as long
     // as the one that just used up the budget.
-    if (round > 0 && Date.now() > deadline) break;
+    if (round > 0 && Date.now() > deadline) {
+      step(round, 'deadline', { budgetMs: GUESS_DEADLINE_MS });
+      break;
+    }
 
+    const asked = Date.now();
     const result = await ai.guardedGuesser({ clue, letterCount: targetLetterCount, wordClass, feedback });
+    const tookMs = Date.now() - asked;
 
     if (result == null) {
       // Unusable answer. Fail open on the rule check, but the guess itself
@@ -60,22 +75,27 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       // rather than writing the clue off after a single bad reply. Bounded
       // separately, because null also covers "the API call failed" — and a
       // dead API should not spend the whole budget while a player waits.
+      step(round, 'blank', { tookMs, blanks: blanks + 1 });
       if (++blanks >= 2) break;
       continue;
     }
 
     if (result.legal === false) {
+      step(round, 'refused', { tookMs, reason: result.reason ?? null });
       return { type: 'rejected', reason: result.reason || 'Ledtråden bryter mot reglerna.' };
     }
 
     const guess = extractWord(result.guess);
     if (!guess) {
-      feedback.push({ guess: String(result.guess).trim().slice(0, 30) || '?', problem: 'not_word' });
+      const shown = String(result.guess).trim().slice(0, 30) || '?';
+      step(round, 'unreadable', { tookMs, reply: shown });
+      feedback.push({ guess: shown, problem: 'not_word' });
       continue;
     }
     lastGuess = guess;
 
     if (letterCount(guess) !== targetLetterCount) {
+      step(round, 'wrong_length', { tookMs, guess, letters: letterCount(guess), wanted: targetLetterCount });
       feedback.push({ guess, problem: 'length' });
       continue;
     }
@@ -83,6 +103,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
     // A guess equal to the target needs no checking at all — the target is a
     // real word by construction.
     if (normalize(guess) === normalize(target)) {
+      step(round, 'correct', { tookMs, guess });
       return { type: 'correct', guess, why: result.why ?? null };
     }
 
@@ -91,6 +112,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
     // its own rules, so it is re-prompted rather than passed on to the player.
     const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
     if (real === false) {
+      step(round, 'not_a_word', { tookMs, guess });
       feedback.push({ guess, problem: 'not_word' });
       continue;
     }
@@ -101,13 +123,15 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
     // wrong-length guess: the clue was legal, so re-prompt rather than let a
     // half-word stand as the round's result.
     if (looksInflected(guess, isSwedishWord)) {
+      step(round, 'not_base_form', { tookMs, guess });
       feedback.push({ guess, problem: 'not_base' });
       continue;
     }
+    step(round, 'wrong', { tookMs, guess });
     return { type: 'wrong', guess, why: result.why ?? null };
   }
 
-  return { type: 'ai_failure', guess: lastGuess }; // "räknas som miss"
+  return { type: 'ai_failure', guess: lastGuess, trace }; // "räknas som miss"
 }
 
 /**
@@ -120,7 +144,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
  *   { type: 'rejected', reason, source: 'code'|'referee' }
  *   { type: 'correct',  guess, score, why }
  *   { type: 'wrong',    guess, why }
- *   { type: 'ai_failure', guess }   // struck through in UI, counts as miss
+ *   { type: 'ai_failure', guess, trace } // struck through in UI, counts as miss
  *
  * `why` is the guesser's own account of how it read the clue, shown to the
  * player after the reveal. It is optional everywhere: a missing one is a
@@ -152,7 +176,14 @@ export async function judgeClue({ clue, target, forbidden, maxLength, wordClass,
   if (result.type === 'wrong') {
     return { type: 'wrong', guess: result.guess, why: result.why ?? null };
   }
-  return { type: 'ai_failure', guess: result.guess ?? null };
+  // A failure is the one verdict that cannot explain itself, so the round's
+  // steps travel with it — to the server log, and to the player behind a
+  // disclosure. Without this, "gave up after one round" and "tried four times"
+  // are indistinguishable from the outside, which is exactly the doubt this
+  // outcome creates.
+  const trace = result.trace ?? [];
+  console.error(`ai_failure after ${trace.length} step(s):`, JSON.stringify(trace));
+  return { type: 'ai_failure', guess: result.guess ?? null, trace };
 }
 
 /**

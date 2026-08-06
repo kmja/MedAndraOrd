@@ -93,6 +93,41 @@ function standingText(standing) {
  * and in the counter, and repeating them here made a 10px strip carry three
  * numbers that had to be read to be understood.
  */
+// What each round of the guesser loop did, for the one verdict that cannot
+// explain itself. Collapsed by default: a player who just wants to try again
+// should not have to read a log, but "the AI gave no valid answer" is otherwise
+// indistinguishable from "the AI was asked once and we gave up".
+const STEP_TEXT = {
+  wrong_length: (s) => `gissade ”${s.guess}” — ${s.letters} bokstäver, skulle vara ${s.wanted}`,
+  not_a_word: (s) => `gissade ”${s.guess}” — inte ett svenskt ord`,
+  not_base_form: (s) => `gissade ”${s.guess}” — böjd form, inte grundform`,
+  unreadable: (s) => `svarade ”${s.reply}” — gick inte att läsa som ett ord`,
+  blank: () => 'inget svar från modellen',
+  deadline: (s) => `tiden tog slut (${(s.budgetMs / 1000).toFixed(0)} s)`,
+};
+
+function TraceDetails({ trace }) {
+  if (!trace?.length) return null;
+  return (
+    <details className="trace">
+      <summary>Vad hände?</summary>
+      <ol>
+        {trace.map((s, i) => (
+          <li key={i}>
+            <span className="trace-round">Försök {s.round + 1}</span>
+            {' '}
+            {(STEP_TEXT[s.event] ?? (() => s.event))(s)}
+            {s.tookMs != null && <span className="trace-ms"> ({(s.tookMs / 1000).toFixed(1)} s)</span>}
+          </li>
+        ))}
+      </ol>
+      <p className="trace-foot">
+        AI:n får en rättelse efter varje felaktig gissning och försöker igen.
+      </p>
+    </details>
+  );
+}
+
 function LengthMeter({ length, max, average, record }) {
   const pctOf = (n) => `${Math.min(100, (n / max) * 100)}%`;
   const over = length > max;
@@ -579,7 +614,7 @@ export default function App() {
         setClue(text); // let them edit rather than retype
         buzz();
       } else if (entry.type === 'ai_failure') {
-        setNotice({ kind: 'ai_failure', guess: entry.guess });
+        setNotice({ kind: 'ai_failure', guess: entry.guess, trace: entry.trace });
         buzz();
       }
     } catch (err) {
@@ -762,6 +797,7 @@ export default function App() {
                 <strong>AI:n gav inget giltigt svar</strong>
                 {notice.guess ? <> (<s>{notice.guess}</s>)</> : null}.{' '}
                 <em>Kostade inget försök — prova igen.</em>
+                <TraceDetails trace={notice.trace} />
               </>
             )}
             {notice.kind === 'timeout' && (

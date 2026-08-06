@@ -151,7 +151,7 @@ const BACKOFF_MS = [700, 1800];
 // through judgeClue's `ai` seam, so nothing is lost by capping here.
 const MAX_RETRY_WAIT_MS = 1200;
 
-async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false, onFailure }) {
+async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json = false, temperature = 0, onFailure }) {
   let lastErr;
   for (let attempt = 0; attempt <= RETRIES; attempt++) {
     try {
@@ -161,7 +161,7 @@ async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json =
         config: {
           systemInstruction: system,
           maxOutputTokens,
-          temperature: 0, // same clue should tend to the same verdict
+          temperature,
           ...(json ? { responseMimeType: 'application/json' } : {}),
         },
       });
@@ -213,13 +213,18 @@ export async function guardedGuesser({ clue, letterCount, wordClass, feedback = 
   const contents = [
     userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.${wordClass ? `\nOrdklass: ${wordClass}.` : ''}`),
   ];
+  const tried = [];
   for (const fb of feedback) {
     contents.push(modelTurn(JSON.stringify({ legal: true, guess: fb.guess })));
-    contents.push(userTurn(guessCorrection(fb, letterCount)));
+    if (!tried.includes(fb.guess)) tried.push(fb.guess);
+    contents.push(userTurn(guessCorrection(fb, letterCount, tried)));
   }
 
   try {
-    const response = await generate({ system, contents, maxOutputTokens: 260, json: true, onFailure });
+    const response = await generate({
+      system, contents, maxOutputTokens: 260, json: true,
+      temperature: retryTemperature(feedback.length), onFailure,
+    });
     return parseGuardedGuess(textOf(response));
   } catch (err) {
     console.error(`guardedGuesser failed (${classifyApiError(err)}):`, err.message);
@@ -445,18 +450,42 @@ Svara ENDAST med JSON, ett svar per ledtråd, med samma id som i frågan:
 // Two corrections, both about the guess breaking its own rules: wrong length
 // (caught in code) and not a real word (caught by the dictionary). Either way
 // the player wrote a legal clue, so the AI is re-prompted until it complies.
-function guessCorrection(fb, letterCount) {
+export function guessCorrection(fb, letterCount, tried = []) {
+  // The list of what has already been rejected is what makes a retry a retry.
+  // Without it every round sent the model the same sentence, and at
+  // temperature 0 the same sentence gets the same answer — the loop ran its
+  // four rounds and collected four copies of one guess.
+  const already = tried.length
+    ? ` Du har redan föreslagit: ${tried.map((g) => `"${g}"`).join(', ')}. Föreslå ett ANNAT ord — upprepa ingen av dem.`
+    : '';
   if (fb.problem === 'length') {
-    return `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
+    return `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver.${already} Svara med samma JSON-format.`;
   }
   // Told apart from "not a word" on purpose. A genitive or a definite form IS
   // a Swedish word, and being told otherwise invites the model to argue rather
   // than to fix the actual fault — which is usually padding a short word out
   // to reach the letter count.
   if (fb.problem === 'not_base') {
-    return `"${fb.guess}" är en böjd form, inte grundform. Böj inte ett kortare ord för att komma upp i rätt längd — hitta ett annat ord som redan i grundform har exakt ${letterCount} bokstäver (obestämd form singular för substantiv, infinitiv för verb). Svara med samma JSON-format.`;
+    return `"${fb.guess}" är en böjd form, inte grundform. Böj inte ett kortare ord för att komma upp i rätt längd — hitta ett annat ord som redan i grundform har exakt ${letterCount} bokstäver (obestämd form singular för substantiv, infinitiv för verb).${already} Svara med samma JSON-format.`;
   }
-  return `"${fb.guess}" är inte ett etablerat svenskt ord. Gissa ett riktigt svenskt ord i grundform med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
+  return `"${fb.guess}" är inte ett etablerat svenskt ord. Gissa ett riktigt svenskt ord i grundform med exakt ${letterCount} bokstäver.${already} Svara med samma JSON-format.`;
+}
+
+/**
+ * How much to let the model wander, given how many corrections it has had.
+ * Exported for tests.
+ *
+ * The first answer to a clue stays deterministic: identical clues should tend
+ * to identical verdicts, and that answer is the one that gets cached. But a
+ * retry exists precisely to produce a DIFFERENT word, and asking a
+ * temperature-0 model again is asking it to repeat itself. It obliged — four
+ * rounds, four times "klock".
+ */
+export function retryTemperature(corrections) {
+  if (corrections === 0) return 0;
+  // Rounded, because 0.4 + 0.2 * 1 is 0.6000000000000001 in binary floating
+  // point and that goes into an API request body.
+  return Math.round(Math.min(0.4 + 0.2 * corrections, 1) * 10) / 10;
 }
 
 export const MODEL_ID = MODEL;

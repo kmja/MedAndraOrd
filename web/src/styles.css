@@ -306,6 +306,31 @@ input.is-invalid {
 .notice-ai_failure { background: #f5f1e6; border: 1px solid var(--line); color: var(--muted); }
 .notice-error { background: var(--alert-soft); border: 1px solid #e8cfc4; color: var(--alert); }
 .notice-timeout { background: #f5f1e6; border: 1px solid var(--line); color: var(--muted); }
+
+/* The failure trace. Collapsed by default and set small — it is diagnostic
+   detail, not part of the round, and it must not compete with the notice it
+   sits inside. */
+.trace { margin-top: 0.5rem; }
+.trace summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.trace ol {
+  margin: 0.45rem 0 0;
+  padding-left: 1.15rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.trace li { margin-bottom: 0.1rem; }
+.trace-round { font-weight: 600; }
+.trace-ms { opacity: 0.6; }
+.trace-foot {
+  margin: 0.45rem 0 0;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
 .notice em { font-style: normal; opacity: 0.85; }
 .notice s { opacity: 0.8; }
 

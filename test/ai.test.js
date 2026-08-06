@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   textOf, parseRuling, guesserSystemPrompt, batchGuesserSystemPrompt,
   parseBatchGuesses, cleanReason, classifyApiError, retryDelayMs,
+  guessCorrection, retryTemperature,
 } from '../server/ai.js';
 import { WORDS } from '../server/words.js';
 import { normalize } from '../server/util.js';
@@ -377,5 +378,47 @@ test('rule 5 does not swallow the evocative clues rule 4 was fixed to allow', ()
     // association in general.
     assert.match(prompt, /"sväva över taken"\s+TILLÅTEN/);
     assert.match(prompt, /"propeller"\s+OTILLÅTEN/);
+  }
+});
+
+test('a retry tells the model what it has already tried', () => {
+  // Without this every round sent the same sentence, and the same sentence at
+  // temperature 0 gets the same answer back. The loop ran its four rounds and
+  // collected four copies of "klock" — retries that fire but cannot diverge.
+  const first = guessCorrection({ guess: 'klock', problem: 'not_word' }, 5, ['klock']);
+  assert.match(first, /redan föreslagit: "klock"/);
+
+  const third = guessCorrection({ guess: 'klok', problem: 'not_word' }, 5, ['klock', 'klok', 'kloka']);
+  for (const g of ['klock', 'klok', 'kloka']) assert.ok(third.includes(`"${g}"`), `missing ${g}`);
+  assert.match(third, /ANNAT ord/);
+
+  // The very first ask has nothing to list, and must not grow a dangling
+  // "already suggested:" with an empty list after it.
+  const clean = guessCorrection({ guess: 'x', problem: 'not_word' }, 5);
+  assert.ok(!clean.includes('redan föreslagit'), 'the first ask has no history to cite');
+});
+
+test('every correction kind carries the tried list', () => {
+  // Three branches, and a retry that forgets its history is useless whichever
+  // branch produced it.
+  for (const problem of ['length', 'not_base', 'not_word']) {
+    const msg = guessCorrection({ guess: 'klock', problem }, 5, ['klock']);
+    assert.match(msg, /redan föreslagit/, `${problem} branch drops the history`);
+    assert.match(msg, /samma JSON-format/, `${problem} branch drops the format reminder`);
+  }
+});
+
+test('retries are allowed to wander, the first answer is not', () => {
+  // The first answer to a clue is the one that gets cached, and identical
+  // clues should tend to identical verdicts — so it stays deterministic. A
+  // retry exists to produce a DIFFERENT word, and asking a temperature-0 model
+  // again is asking it to repeat itself.
+  assert.equal(retryTemperature(0), 0);
+  assert.ok(retryTemperature(1) > 0);
+  for (let n = 1; n < 6; n++) {
+    assert.ok(retryTemperature(n) <= 1, `temperature must stay in range at ${n}`);
+    assert.ok(retryTemperature(n) >= retryTemperature(n - 1), 'must not narrow as it retries');
+    // Sent verbatim in a request body, so it must not carry binary float noise.
+    assert.equal(retryTemperature(n), Math.round(retryTemperature(n) * 10) / 10);
   }
 });
