@@ -673,3 +673,17 @@ test('base forms that merely look inflected are still accepted', async () => {
     assert.equal(v.guess, guess);
   }
 });
+
+test('the attempt cap reads from the environment, and bad values do not lock the game', async () => {
+  const { attemptCapFrom } = await import('../server/game.js');
+  // Unset means uncapped — the current playtest setting.
+  assert.equal(attemptCapFrom(undefined), Infinity);
+  assert.equal(attemptCapFrom(''), Infinity);
+  assert.equal(attemptCapFrom('5'), 5);
+  // Anything malformed must fall back to uncapped rather than to a small
+  // number: "0", "abc" or "-1" read as a cap would silently end the game
+  // before it started.
+  for (const bad of ['0', '-1', 'abc', '2.5', 'NaN']) {
+    assert.equal(attemptCapFrom(bad), Infinity, `${bad} should not become a cap`);
+  }
+});

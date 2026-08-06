@@ -40,7 +40,13 @@ test('api/state returns today\'s puzzle and issues a player cookie', async () =>
   // assert the contract (a usable number is always sent), not a constant.
   assert.equal(typeof res.body.maxClueLength, 'number');
   assert.ok(res.body.maxClueLength >= 8 && res.body.maxClueLength <= 24);
-  assert.equal(res.body.attemptsLeft, 5);
+  // Attempts are uncapped for playtesting, and the wire says so with null —
+  // Infinity does not survive JSON. The contract is "null, or a positive
+  // number", never 0 on a fresh board.
+  assert.ok(
+    res.body.attemptsLeft === null || res.body.attemptsLeft > 0,
+    `unexpected attemptsLeft: ${res.body.attemptsLeft}`,
+  );
 
   const cookie = res.headers['set-cookie'];
   assert.match(cookie, /^ordknapp_pid=[a-f0-9]{32};/);
@@ -123,12 +129,17 @@ test('a rejected clue never consumes an attempt, however many times it is sent',
   const cookie = first.headers['set-cookie'].split(';')[0];
   const headers = { cookie };
 
+  const before = first.body.attemptsLeft;
   for (let i = 0; i < 3; i++) {
     const res = mockRes();
     // Emoji: rejected in code, so this needs no API key.
     await clueHandler(mockReq({ method: 'POST', headers, body: { clue: 'test 🥕' } }), res);
     assert.equal(res.body.result.type, 'rejected');
-    assert.equal(res.body.attemptsLeft, 5, `attempt consumed on submission ${i + 1}`);
+    // The point is that a refused clue is free, whether or not there is a cap.
+    assert.equal(
+      res.body.attemptsLeft, before,
+      `attempt consumed on submission ${i + 1}`,
+    );
   }
 });
 

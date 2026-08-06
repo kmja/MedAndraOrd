@@ -30,6 +30,14 @@ const COOKIE = 'ordknapp_pid';
  */
 const puzzleKey = (date, index) => `${date}:${index}`;
 
+// Infinity does not survive JSON — it serialises to null. That is convenient
+// rather than lossy: null reads as "no limit" on the client, where 0 would
+// read as "out of attempts" and lock the input. Both fields are sent the same
+// way so the client has one rule to follow.
+const wireAttempts = (used) =>
+  (Number.isFinite(MAX_ATTEMPTS) ? Math.max(0, MAX_ATTEMPTS - used) : null);
+const wireMaxAttempts = () => (Number.isFinite(MAX_ATTEMPTS) ? MAX_ATTEMPTS : null);
+
 // A cached ruling is only true of the rules that produced it, so the rulebook
 // is part of its identity. Editing a rule changes RULEBOOK_ID, which orphans
 // every ruling made under the old wording instead of letting it outlive the
@@ -129,8 +137,8 @@ export async function stateHandler(req, res) {
     letterCount,
     wordClass: today.class,
     maxClueLength: clueLimitFor(today),
-    maxAttempts: MAX_ATTEMPTS,
-    attemptsLeft: Math.max(0, MAX_ATTEMPTS - attempts),
+    maxAttempts: wireMaxAttempts(),
+    attemptsLeft: wireAttempts(attempts),
     best,
     leaderboard,
     standing,
@@ -256,7 +264,7 @@ export async function clueHandler(req, res) {
   send(res, 200, {
     result: verdict,
     cached,
-    attemptsLeft: Math.max(0, MAX_ATTEMPTS - newAttempts),
+    attemptsLeft: wireAttempts(newAttempts),
     best,
     leaderboard,
     standing,

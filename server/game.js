@@ -2,7 +2,28 @@ import { checkClueCode, normalize, clueLength, letterCount, extractWord, looksIn
 import * as defaultAi from './ai.js';
 import { isSwedishWord } from './dictionary.js';
 
-export const MAX_ATTEMPTS = 5; // per player per day — unlimited retries make it a grind
+/**
+ * Attempts per player per day, or Infinity for no limit.
+ *
+ * A cap is right for a daily puzzle — unlimited retries turn a guessing game
+ * into a grind, and the leaderboard means something because everyone had the
+ * same five tries. It is wrong while the game is being shown to people for the
+ * first time, where the point is that they try things and say what happened.
+ * So it is currently uncapped, and ORDKNAPP_MAX_ATTEMPTS=5 puts the limit back
+ * without a deploy.
+ */
+export const MAX_ATTEMPTS = attemptCapFrom(process.env.ORDKNAPP_MAX_ATTEMPTS);
+
+/** Read the cap from a raw env value. Exported so the parsing can be tested
+ * without reloading the module under a different environment. */
+export function attemptCapFrom(raw) {
+  if (raw == null || raw === '') return Infinity;
+  const n = Number(raw);
+  // A malformed value must not silently mean "one attempt" — that is a worse
+  // game than either setting anyone meant to choose.
+  return Number.isInteger(n) && n > 0 ? n : Infinity;
+}
+
 export const MAX_GUESS_ROUNDS = 4;
 
 // A ceiling on the whole loop, not just on the number of rounds. Rounds bound

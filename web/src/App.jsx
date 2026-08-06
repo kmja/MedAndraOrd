@@ -241,7 +241,7 @@ function ResponseCard({ entry, pending, clue, letterCount, latest, children, spi
   );
 }
 
-function Leaderboard({ rows, standing, compact }) {
+function Leaderboard({ rows, standing, compact, capped = true }) {
   const text = standingText(standing);
 
   // On the win card the board is a reward, not a directory: show the top few
@@ -290,7 +290,14 @@ function Leaderboard({ rows, standing, compact }) {
         </ol>
       )}
       {rows.length > 0 && !('clue' in rows[0]) && (
-        <p className="lb-locked">Ledtrådarna visas när du klarat ordet — eller när dina försök är slut.</p>
+        <p className="lb-locked">
+          {/* With no attempt cap the second half of this sentence is simply
+              untrue — nobody ever runs out — and promising a reveal that
+              cannot arrive is worse than the shorter line. */}
+          {capped
+            ? 'Ledtrådarna visas när du klarat ordet — eller när dina försök är slut.'
+            : 'Ledtrådarna visas när du klarat ordet.'}
+        </p>
       )}
     </div>
   );
@@ -302,6 +309,14 @@ function Leaderboard({ rows, standing, compact }) {
  * thing to respond to. Carrying on to shave a character is then a deliberate
  * choice rather than the default.
  */
+// The server sends null for attemptsLeft when the game is uncapped (Infinity
+// does not survive JSON). Everywhere that asks "may they play again?" has to
+// treat null as yes — read as a number it is 0, which would lock the input and
+// tell everyone they were out of attempts.
+const canPlayOn = (attemptsLeft) => attemptsLeft == null || attemptsLeft > 0;
+const attemptsPhrase = (attemptsLeft) =>
+  (attemptsLeft == null ? 'obegränsat antal försök' : `${attemptsLeft} försök kvar`);
+
 function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, onClose, dialogRef }) {
   return (
     <dialog ref={dialogRef} className="win-dialog" onClose={onClose} aria-labelledby="win-title">
@@ -335,7 +350,7 @@ function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, 
           <Leaderboard rows={leaderboard} standing={standing} compact />
 
           <div className="win-actions">
-            {attemptsLeft > 0 ? (
+            {canPlayOn(attemptsLeft) ? (
               <>
                 <button type="button" onClick={onImprove}>
                   Försök bli kortare
@@ -343,7 +358,7 @@ function WinDialog({ win, word, attemptsLeft, leaderboard, standing, onImprove, 
                 <button type="button" className="ghost" onClick={onClose}>
                   Klart för idag
                 </button>
-                <p className="win-note">{attemptsLeft} försök kvar</p>
+                {attemptsLeft != null && <p className="win-note">{attemptsLeft} försök kvar</p>}
               </>
             ) : (
               <>
@@ -550,7 +565,7 @@ export default function App() {
   const active = practice ?? state;
   const busy = pendingClue !== null;
   const inFlight = busy || settling !== null;
-  const outOfAttempts = !practice && state.attemptsLeft <= 0;
+  const outOfAttempts = !practice && !canPlayOn(state.attemptsLeft);
   const clueLen = clueLength(clue);
   const tooLong = clueLen > state.maxClueLength;
   const attempts = history.filter(isAttempt);
@@ -692,8 +707,8 @@ export default function App() {
     : outOfAttempts
       ? 'Inga försök kvar idag'
       : solved
-        ? `Går det kortare? ${state.attemptsLeft} försök kvar`
-        : `${state.attemptsLeft} försök kvar`;
+        ? `Går det kortare? ${attemptsPhrase(state.attemptsLeft)}`
+        : attemptsPhrase(state.attemptsLeft).replace(/^o/, 'O');
 
   return (
     <div className="shell">
@@ -732,9 +747,9 @@ export default function App() {
             <p className="solved-line">
               Klarat på <strong>{state.best} tecken</strong>.
             </p>
-            {state.attemptsLeft > 0 ? (
+            {canPlayOn(state.attemptsLeft) ? (
               <button type="button" ref={solvedRef} onClick={startImproving}>
-                Försök bli kortare · {state.attemptsLeft} försök kvar
+                Försök bli kortare{state.attemptsLeft != null && ` · ${state.attemptsLeft} försök kvar`}
               </button>
             ) : (
               <p className="muted">Inga försök kvar. Nytt ord imorgon.</p>
@@ -868,7 +883,7 @@ export default function App() {
           {state.durable === false && (
             <p className="warn">Ingen databas är kopplad — resultaten försvinner när servern startar om.</p>
           )}
-          <Leaderboard rows={state.leaderboard} standing={state.standing} />
+          <Leaderboard rows={state.leaderboard} standing={state.standing} capped={state.maxAttempts != null} />
         </section>
       )}
 
