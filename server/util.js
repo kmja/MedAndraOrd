@@ -221,6 +221,70 @@ export function inflectionsOf(word) {
   return out;
 }
 
+const INFLECTION_SUFFIXES = ['s', 'n', 't', 'en', 'et', 'er', 'ar', 'or', 'na', 'ns', 'ts',
+  'ets', 'ens', 'arna', 'erna', 'orna', 'ade', 'at'];
+
+/**
+ * Is this an inflected form rather than the base form the guesser was asked
+ * for? The dictionary arrives as a predicate so this file stays import-free
+ * and the browser can keep using it.
+ *
+ * The dictionary lists word FORMS, so it answers "is this Swedish", not "is
+ * this a lemma" — which is how "gravs" came back as a guess for a five-letter
+ * word. It is a real genitive, so isSwedishWord said yes.
+ *
+ * Stripping a known ending and finding a word underneath is not enough on its
+ * own: measured against the bank it rejects `glass`, `buss` and `dans`, all
+ * base forms that happen to end in -s. The second test is what makes it safe —
+ * a lemma inflects, an inflected form does not. "glass" has "glassen" and
+ * "glassar" in the dictionary; "gravs" has no "gravsen". Measured over every
+ * inflection the bank can produce, this rejects about half of them and, across
+ * 475 known lemmas, none. Deliberately biased that way: a wrong rejection
+ * costs the player a round, a miss costs an odd-looking guess.
+ */
+export function looksInflected(word, isWord) {
+  const w = normalize(word);
+  if (!w) return false;
+  const strips = INFLECTION_SUFFIXES.some((suffix) => {
+    if (!w.endsWith(suffix)) return false;
+    const base = w.slice(0, -suffix.length);
+    // `isWord` can also answer null for "dictionary unavailable", and only a
+    // definite yes may be used to reject — otherwise an outage would start
+    // refusing guesses.
+    return base.length >= 3 && isWord(base) === true && inflectionsOf(base).has(w);
+  });
+  if (!strips) return false;
+  for (const form of inflectionsOf(w)) {
+    if (isWord(form) === true) return false; // it inflects, so it is a lemma
+  }
+  return true;
+}
+
+/**
+ * The forms a word takes as the FIRST half of a compound. Exported for tests.
+ *
+ * inflectionsOf only ever adds endings, so it cannot see "kyrkklocka": Swedish
+ * drops a final -a or -e before the second element, and the result is neither
+ * the word nor any inflection of it. When the target is the SECOND half
+ * ("domkyrka") the whole word is present and the plain substring test already
+ * catches it — this covers the other position.
+ *
+ * The linking forms (kyrko-, gatu-) all begin with the same stem, so matching
+ * the stem as a prefix covers them without listing them.
+ */
+export function compoundStemsOf(word) {
+  const w = normalize(word);
+  const out = new Set();
+  for (const pattern of [/^(.+)a$/, /^(.+)e$/]) {
+    const hit = pattern.exec(w);
+    // Three letters is too little to anchor on. "vara" would yield "var", and
+    // then "varm" reads as a clue containing the secret word. Four is where
+    // stems stop swallowing ordinary vocabulary by accident.
+    if (hit && hit[1].length >= 4) out.add(hit[1]);
+  }
+  return out;
+}
+
 export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH) {
   const raw = String(clue ?? '');
   const n = normalize(raw);
@@ -253,6 +317,19 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
   for (const form of inflectionsOf(target)) {
     if (form.length >= 5 ? n.includes(form) : words.has(form)) {
       return { code: 'contains_inflection', reason: 'Ledtråden innehåller en böjning av det hemliga ordet.' };
+    }
+  }
+  // Compounds built ON the target: "kyrkklocka", "kyrkogård". Matched as a word
+  // prefix, because that is where a Swedish compound puts its first element,
+  // and a free substring test on a four-letter stem would catch far too much.
+  for (const stem of compoundStemsOf(target)) {
+    for (const w of words) {
+      if (w.startsWith(stem)) {
+        return {
+          code: 'contains_compound',
+          reason: 'Ledtråden bygger på det hemliga ordet i en sammansättning.',
+        };
+      }
     }
   }
   for (const f of forbidden) {

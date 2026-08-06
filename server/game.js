@@ -1,4 +1,4 @@
-import { checkClueCode, normalize, clueLength, letterCount, extractWord } from './util.js';
+import { checkClueCode, normalize, clueLength, letterCount, extractWord, looksInflected } from './util.js';
 import * as defaultAi from './ai.js';
 import { isSwedishWord } from './dictionary.js';
 
@@ -92,6 +92,16 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
     const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
     if (real === false) {
       feedback.push({ guess, problem: 'not_word' });
+      continue;
+    }
+
+    // A real word is not enough: the guess has to be the base form. The
+    // dictionary lists every form, so "gravs" — a genitive — passed the check
+    // above and went on screen as the AI's answer. Same treatment as a
+    // wrong-length guess: the clue was legal, so re-prompt rather than let a
+    // half-word stand as the round's result.
+    if (looksInflected(guess, isSwedishWord)) {
+      feedback.push({ guess, problem: 'not_base' });
       continue;
     }
     return { type: 'wrong', guess, why: result.why ?? null };

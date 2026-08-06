@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
   dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING, inflectionsOf,
-  clueLimitFor, suggestedLimit,
+  clueLimitFor, suggestedLimit, compoundStemsOf, looksInflected,
   letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
 } from '../server/util.js';
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
@@ -605,4 +605,71 @@ test('judgeClue: wrong valid guess is a miss', async () => {
   const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'wrong');
   assert.equal(v.guess, 'kanin');
+});
+
+// ---------------------------------------------------------------------------
+// Compounds built on the target, and guesses that are not base forms.
+
+test('a compound built on the target is refused', () => {
+  // inflectionsOf only adds endings, so it cannot see this: Swedish drops the
+  // final -a before the second element, and "kyrk" is neither the word nor an
+  // inflection of it. "kyrkklocka" and "kyrkogård" both got through.
+  for (const clue of ['kyrkklocka', 'kyrkogård', 'kyrkbänk', 'kyrko gård']) {
+    const v = checkClueCode(clue, 'kyrka', []);
+    assert.equal(v?.code, 'contains_compound', `${clue} should be refused`);
+  }
+  // The other position is already covered by the plain substring test.
+  assert.equal(checkClueCode('domkyrka', 'kyrka', [])?.code, 'contains_target');
+});
+
+test('the compound stem never gets short enough to swallow ordinary words', () => {
+  // "vara" would yield "var", and then "varm" reads as containing the secret
+  // word. Four letters is the floor.
+  assert.deepEqual([...compoundStemsOf('vara')], []);
+  assert.deepEqual([...compoundStemsOf('gata')], []);
+  assert.deepEqual([...compoundStemsOf('kyrka')], ['kyrk']);
+  assert.deepEqual([...compoundStemsOf('vante')], ['vant']);
+  assert.equal(checkClueCode('varm dryck', 'vara', []), null);
+});
+
+test('no bank word is refused as a compound of itself', () => {
+  // The stem test runs against every target, so a stem that matched its own
+  // word bank would make legal clues impossible for that word.
+  for (const { word } of WORDS) {
+    for (const stem of compoundStemsOf(word)) {
+      assert.ok(stem.length >= 4, `${word}: stem "${stem}" is too short to anchor on`);
+    }
+  }
+});
+
+test('an inflected form is not accepted as a guess', async () => {
+  // The dictionary lists word FORMS, so "gravs" — a real genitive — passed the
+  // "is this Swedish" check and went on screen as the AI's guess.
+  const seen = [];
+  const ai = {
+    guardedGuesser: async ({ feedback }) => {
+      seen.push(feedback.at(-1)?.problem ?? null);
+      return feedback.length === 0
+        ? { legal: true, guess: 'gravs' }
+        : { legal: true, guess: 'kista' };
+    },
+  };
+  const v = await judgeClue({ clue: 'vilorum', target: 'kyrka', forbidden: [], maxLength: 18, ai });
+  assert.equal(v.type, 'wrong');
+  assert.equal(v.guess, 'kista', 'the inflected guess should have been sent back');
+  assert.deepEqual(seen, [null, 'not_base']);
+});
+
+test('base forms that merely look inflected are still accepted', async () => {
+  // Stripping an ending and finding a word underneath is not enough on its
+  // own: "glass" strips to "glas", "buss" to "bus", "dans" to "dan". All three
+  // are ordinary base forms and must survive as guesses.
+  for (const guess of ['glass', 'buss', 'dans', 'puls', 'kalas', 'krans', 'slips']) {
+    const ai = { guardedGuesser: async () => ({ legal: true, guess }) };
+    const v = await judgeClue({
+      clue: 'ledtråd', target: 'xxxxx'.slice(0, guess.length), forbidden: [], maxLength: 18, ai,
+    });
+    assert.equal(v.type, 'wrong', `${guess} should have been accepted as a guess`);
+    assert.equal(v.guess, guess);
+  }
 });

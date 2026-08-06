@@ -446,9 +446,17 @@ Svara ENDAST med JSON, ett svar per ledtråd, med samma id som i frågan:
 // (caught in code) and not a real word (caught by the dictionary). Either way
 // the player wrote a legal clue, so the AI is re-prompted until it complies.
 function guessCorrection(fb, letterCount) {
-  return fb.problem === 'length'
-    ? `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`
-    : `"${fb.guess}" är inte ett etablerat svenskt ord. Gissa ett riktigt svenskt ord i grundform med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
+  if (fb.problem === 'length') {
+    return `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
+  }
+  // Told apart from "not a word" on purpose. A genitive or a definite form IS
+  // a Swedish word, and being told otherwise invites the model to argue rather
+  // than to fix the actual fault — which is usually padding a short word out
+  // to reach the letter count.
+  if (fb.problem === 'not_base') {
+    return `"${fb.guess}" är en böjd form, inte grundform. Böj inte ett kortare ord för att komma upp i rätt längd — hitta ett annat ord som redan i grundform har exakt ${letterCount} bokstäver (obestämd form singular för substantiv, infinitiv för verb). Svara med samma JSON-format.`;
+  }
+  return `"${fb.guess}" är inte ett etablerat svenskt ord. Gissa ett riktigt svenskt ord i grundform med exakt ${letterCount} bokstäver. Svara med samma JSON-format.`;
 }
 
 export const MODEL_ID = MODEL;
