@@ -63,24 +63,42 @@ export function parseRuling(text) {
 
 /**
  * Parse the combined judge-and-guess reply. Exported for tests.
- * Returns { legal: false, reason } | { legal: true, guess } | null.
+ * Returns { legal: false, reason } | { legal: true, candidates, guess, why } | null.
  * Null means "unusable answer" and is treated as an unavailable check.
+ *
+ * A retry asks for several alternatives at once, so the reply may carry either
+ * one `guess` or a list of `guesses`. Both shapes normalise to `candidates`,
+ * and the caller walks them in order — asking for options turned out to be a
+ * far easier instruction to follow than asking for something different.
  */
 export function parseGuardedGuess(text) {
   const ruling = parseRuling(text);
   if (!ruling) return null;
   if (!ruling.legal) return { legal: false, reason: ruling.reason };
   const match = String(text).match(/\{[\s\S]*\}/);
+  let parsed;
   try {
-    const { guess, why } = JSON.parse(match[0]);
-    if (typeof guess !== 'string' || !guess.trim()) return null;
-    // The reasoning is a nicety. A missing or malformed one must never turn a
-    // perfectly good guess into a failure, so it is read separately and
-    // defaulted to null rather than validated alongside the guess.
-    return { legal: true, guess, why: cleanReason(why) };
+    parsed = JSON.parse(match[0]);
   } catch {
     return null;
   }
+
+  const candidates = [];
+  const add = (guess, why) => {
+    // The reasoning is a nicety. A missing or malformed one must never turn a
+    // perfectly good guess into a failure, so it is read separately and
+    // defaulted to null rather than validated alongside the guess.
+    if (typeof guess === 'string' && guess.trim()) candidates.push({ guess, why: cleanReason(why) });
+  };
+  add(parsed.guess, parsed.why);
+  if (Array.isArray(parsed.guesses)) {
+    for (const g of parsed.guesses) {
+      if (typeof g === 'string') add(g, parsed.why);
+      else add(g?.guess, g?.why ?? parsed.why);
+    }
+  }
+  if (!candidates.length) return null;
+  return { legal: true, candidates, guess: candidates[0].guess, why: candidates[0].why };
 }
 
 /**
@@ -207,7 +225,10 @@ const userTurn = (text) => ({ role: 'user', parts: [{ text }] });
  * and checking them in code, which is free and deterministic.
  */
 export async function guardedGuesser({ clue, letterCount, wordClass, feedback = [], onFailure }) {
-  const system = guesserSystemPrompt(letterCount, wordClass);
+  // Every word already ruled out, in the order it was tried.
+  const banned = [];
+  for (const fb of feedback) if (!banned.includes(fb.guess)) banned.push(fb.guess);
+  const system = guesserSystemPrompt(letterCount, wordClass, banned);
 
   // One user turn, never a replayed dialogue. Pushing the rejected guesses
   // back as `model` turns built a transcript that demonstrated the wrong
@@ -220,7 +241,10 @@ export async function guardedGuesser({ clue, letterCount, wordClass, feedback = 
 
   try {
     const response = await generate({
-      system, contents, maxOutputTokens: 260, json: true,
+      system, contents, json: true,
+      // A retry asks for three candidates with a sentence each. Truncation
+      // loses the whole round, so the ceiling moves with what was asked for.
+      maxOutputTokens: banned.length ? 600 : 260,
       temperature: retryTemperature(feedback.length), onFailure,
     });
     return parseGuardedGuess(textOf(response));
@@ -327,7 +351,7 @@ export const RULEBOOK_ID = createHash('sha1')
  * easier than the rest of the bank, for a reason with nothing to do with the
  * clue. Every illustration therefore uses words that are not targets.
  */
-export function guesserSystemPrompt(letterCount, wordClass) {
+export function guesserSystemPrompt(letterCount, wordClass, banned = []) {
   return `Du är gissaren i ordspelet Ordknapp. En spelare har skrivit en ledtråd till ett hemligt svenskt ord. Du får aldrig se ordet. Gör två saker, i ordning:
 
 ${CLUE_CULTURE}
@@ -343,10 +367,35 @@ ${PART_CHECK}
 
 Skriv också EN kort mening om hur du läste ledtråden och varför den ledde dig till just det ordet. Den visas för spelaren, så den ska förklara din tolkning — inte upprepa ledtråden. Max 100 tecken.
 
+${bannedBlock(banned, letterCount)}
 Svara ENDAST med JSON:
-{"legal": true, "guess": "ordet", "why": "kort mening om din tolkning"}
+${banned.length
+    ? `{"legal": true, "guesses": [{"guess": "ord1", "why": "kort mening"}, {"guess": "ord2", "why": "kort mening"}, {"guess": "ord3", "why": "kort mening"}]}`
+    : `{"legal": true, "guess": "ordet", "why": "kort mening om din tolkning"}`}
 eller
 {"legal": false, "reason": "kort motivering på svenska"}`;
+}
+
+/**
+ * The ban list, stated in the system prompt rather than only in the user turn.
+ *
+ * Saying it once, politely, in the message did not work: the model returned
+ * "klock" four rounds running at temperatures from 0 to 1, because the same
+ * rejected word was still the best answer it could see. Two things changed.
+ * The ban moved to the instruction the model is most bound by, and the retry
+ * asks for THREE alternatives instead of one — "give me options" turns out to
+ * be a far easier instruction to follow than "give me something different",
+ * and the caller can simply walk past the ones it has already ruled out.
+ */
+function bannedBlock(banned, letterCount) {
+  if (!banned.length) return '';
+  return `
+FÖRBJUDNA SVAR. Dessa ord är redan prövade och avvisade:
+${banned.map((w) => `  • ${w}`).join('\n')}
+Ett svar ur den listan räknas som inget svar alls, hur rätt det än känns. Känns ett förbjudet ord fortfarande som det enda rimliga, så är din tolkning av ledtråden fel — läs om den och leta i en annan riktning.
+
+Ge därför TRE olika kandidater, alla med exakt ${letterCount} bokstäver, alla i grundform, ingen ur listan ovan. Sätt den du tror mest på först. Att korta eller böja ett ord för att träffa längden är inte tillåtet — hitta ord som redan har ${letterCount} bokstäver.
+`;
 }
 
 /**

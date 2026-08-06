@@ -68,6 +68,7 @@ export class AiUnavailableError extends Error {
 export async function runGuesserLoop({ clue, target, targetLetterCount, wordClass, ai }) {
   const feedback = [];
   const trace = [];
+  const tried = new Set();
   let lastGuess = null;
   let blanks = 0;
   const started = Date.now();
@@ -106,50 +107,83 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       return { type: 'rejected', reason: result.reason || 'Ledtråden bryter mot reglerna.' };
     }
 
-    const guess = extractWord(result.guess);
-    if (!guess) {
-      const shown = String(result.guess).trim().slice(0, 30) || '?';
-      step(round, 'unreadable', { tookMs, reply: shown });
-      feedback.push({ guess: shown, problem: 'not_word' });
-      continue;
-    }
-    lastGuess = guess;
+    // A retry asks for several alternatives at once, so a round can carry more
+    // than one candidate. They are walked best-first and the first usable one
+    // settles the round; the rest are only there so a single stuck answer
+    // cannot waste the whole round.
+    // The `ai` seam is implemented by more than the live module — the probe's
+    // batch path builds rulings by hand, and so do the tests. A single `guess`
+    // is still a valid reply; only the retry asks for a list.
+    const candidates = result.candidates
+      ?? (result.guess != null ? [{ guess: result.guess, why: result.why }] : []);
 
-    if (letterCount(guess) !== targetLetterCount) {
-      step(round, 'wrong_length', { tookMs, guess, letters: letterCount(guess), wanted: targetLetterCount });
-      feedback.push({ guess, problem: 'length', letters: letterCount(guess) });
-      continue;
+    let progressed = false;
+    for (const candidate of candidates) {
+      const guess = extractWord(candidate.guess);
+      if (!guess) {
+        const shown = String(candidate.guess).trim().slice(0, 30) || '?';
+        step(round, 'unreadable', { tookMs, reply: shown });
+        feedback.push({ guess: shown, problem: 'not_word' });
+        progressed = true;
+        continue;
+      }
+
+      // Already ruled out. Re-checking it would push the same entry into the
+      // feedback again and send an identical prompt next round — which is how
+      // four rounds came back holding one word.
+      if (tried.has(guess)) {
+        step(round, 'repeat', { tookMs, guess });
+        continue;
+      }
+      tried.add(guess);
+      progressed = true;
+      lastGuess = guess;
+
+      if (letterCount(guess) !== targetLetterCount) {
+        step(round, 'wrong_length', { tookMs, guess, letters: letterCount(guess), wanted: targetLetterCount });
+        feedback.push({ guess, problem: 'length', letters: letterCount(guess) });
+        continue;
+      }
+
+      // A guess equal to the target needs no checking at all — the target is a
+      // real word by construction.
+      if (normalize(guess) === normalize(target)) {
+        step(round, 'correct', { tookMs, guess });
+        return { type: 'correct', guess, why: candidate.why ?? null };
+      }
+
+      // Otherwise the dictionary decides, in code and for free, whether this is
+      // a legitimate miss or a confabulation. A confabulation is the AI breaking
+      // its own rules, so it is re-prompted rather than passed on to the player.
+      const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
+      if (real === false) {
+        step(round, 'not_a_word', { tookMs, guess });
+        feedback.push({ guess, problem: 'not_word' });
+        continue;
+      }
+
+      // A real word is not enough: the guess has to be the base form. The
+      // dictionary lists every form, so "gravs" — a genitive — passed the check
+      // above and went on screen as the AI's answer. Same treatment as a
+      // wrong-length guess: the clue was legal, so re-prompt rather than let a
+      // half-word stand as the round's result.
+      if (looksInflected(guess, isSwedishWord)) {
+        step(round, 'not_base_form', { tookMs, guess });
+        feedback.push({ guess, problem: 'not_base' });
+        continue;
+      }
+      step(round, 'wrong', { tookMs, guess });
+      return { type: 'wrong', guess, why: candidate.why ?? null };
     }
 
-    // A guess equal to the target needs no checking at all — the target is a
-    // real word by construction.
-    if (normalize(guess) === normalize(target)) {
-      step(round, 'correct', { tookMs, guess });
-      return { type: 'correct', guess, why: result.why ?? null };
+    // Nothing new came back — every candidate was already ruled out. The
+    // feedback is therefore unchanged, so the next round would send a
+    // byte-identical prompt at the same temperature and get the same reply.
+    // Stop and say so rather than spend the remaining rounds proving it.
+    if (!progressed) {
+      step(round, 'stuck');
+      break;
     }
-
-    // Otherwise the dictionary decides, in code and for free, whether this is
-    // a legitimate miss or a confabulation. A confabulation is the AI breaking
-    // its own rules, so it is re-prompted rather than passed on to the player.
-    const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
-    if (real === false) {
-      step(round, 'not_a_word', { tookMs, guess });
-      feedback.push({ guess, problem: 'not_word' });
-      continue;
-    }
-
-    // A real word is not enough: the guess has to be the base form. The
-    // dictionary lists every form, so "gravs" — a genitive — passed the check
-    // above and went on screen as the AI's answer. Same treatment as a
-    // wrong-length guess: the clue was legal, so re-prompt rather than let a
-    // half-word stand as the round's result.
-    if (looksInflected(guess, isSwedishWord)) {
-      step(round, 'not_base_form', { tookMs, guess });
-      feedback.push({ guess, problem: 'not_base' });
-      continue;
-    }
-    step(round, 'wrong', { tookMs, guess });
-    return { type: 'wrong', guess, why: result.why ?? null };
   }
 
   return { type: 'ai_failure', guess: lastGuess, trace }; // "räknas som miss"

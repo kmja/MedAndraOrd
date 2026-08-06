@@ -163,14 +163,29 @@ test('repeated blanks still give up, so a dead API does not burn the budget', as
   assert.ok(calls <= 3, `expected an early stop, got ${calls} calls`);
 });
 
-test('a stubborn wrong-length guess uses the whole round budget', async () => {
-  // The visible symptom of the bug above was "that came back too fast", so the
-  // number of attempts is worth pinning down.
+test('a guesser that keeps offering new wrong words uses the whole round budget', async () => {
+  // The visible symptom of the bug this pins was "that came back too fast", so
+  // the number of attempts is worth holding down. Each guess differs, so every
+  // round has something new to tell the model and all four are worth spending.
+  let calls = 0;
+  const varied = ['eldstadar', 'ugnshuset', 'skorstens', 'rokugnen'];
+  const ai = { guardedGuesser: async () => ({ legal: true, guess: varied[calls++] }) };
+  const v = await runGuesserLoop({ clue: 'x', target: 'fabrik', targetLetterCount: 6, ai });
+  assert.equal(v.type, 'ai_failure');
+  assert.equal(calls, MAX_GUESS_ROUNDS);
+});
+
+test('a guesser stuck on one word is stopped early, not asked four times', async () => {
+  // Repeating a ruled-out guess leaves the feedback unchanged, so the next
+  // round would send a byte-identical prompt at the same temperature. Asking
+  // again cannot produce anything new — it only makes the player wait.
   let calls = 0;
   const stubborn = { guardedGuesser: async () => { calls++; return { legal: true, guess: 'eldstad' }; } };
   const v = await runGuesserLoop({ clue: 'x', target: 'fabrik', targetLetterCount: 6, ai: stubborn });
   assert.equal(v.type, 'ai_failure');
-  assert.equal(calls, MAX_GUESS_ROUNDS);
+  assert.equal(v.guess, 'eldstad', 'the player still sees what it kept saying');
+  assert.equal(calls, 2, 'one round to learn the word, one to see it repeated');
+  assert.equal(v.trace.at(-1).event, 'stuck', 'and the trace has to say why it stopped');
 });
 
 test('checkClueCode rejects inflections the substring test cannot see', () => {
@@ -452,7 +467,9 @@ test('a confabulated guess is re-prompted until the AI complies', async () => {
 });
 
 test('an AI that never complies ends as ai_failure, not as a miss', async () => {
-  const ai = mockAi({ guesses: ['zxcvb'] });
+  // Four different non-words: it never complies, and every round is still
+  // worth asking because each reply is new information.
+  const ai = mockAi({ guesses: ['zxcvb', 'qwrtp', 'fjkld', 'mnbvc'] });
   const v = await judgeClue({ clue: 'lång rot', target: 'morot', forbidden: [], ai });
   assert.equal(v.type, 'ai_failure');
   assert.equal(ai.calls.guarded, MAX_GUESS_ROUNDS);
@@ -551,13 +568,35 @@ test('guesser loop: a non-word is re-prompted, then accepted', async () => {
 });
 
 test(`guesser loop runs at most ${MAX_GUESS_ROUNDS} rounds`, async () => {
+  // A new wrong word every time, so nothing stops it early — this is the
+  // ceiling, and a player waits through every one of these.
   let calls = 0;
+  const wrong = ['fel', 'fela', 'felar', 'felad', 'felat', 'felade'];
   const ai = {
-    guardedGuesser: async () => { calls++; return { legal: true, guess: 'fel' }; }, // 3 letters, target is 5
+    guardedGuesser: async () => ({ legal: true, guess: wrong[calls++] }), // never 5 letters
   };
   const r = await runGuesserLoop({ clue: 'x', target: 'morot', targetLetterCount: 5, ai });
   assert.equal(calls, MAX_GUESS_ROUNDS);
   assert.equal(r.type, 'ai_failure');
+});
+
+test('a round offering several candidates settles on the first usable one', async () => {
+  // The retry asks for three alternatives at once. Walking them in order is
+  // what lets one stuck answer stop costing a whole round.
+  const ai = {
+    guardedGuesser: async () => ({
+      legal: true,
+      candidates: [
+        { guess: 'zzz', why: 'too short' },        // wrong length
+        { guess: 'zxcvb', why: 'not a word' },     // not Swedish
+        { guess: 'stegen', why: 'this one' },      // real, right length
+      ],
+    }),
+  };
+  const r = await runGuesserLoop({ clue: 'x', target: 'stövel', targetLetterCount: 6, ai });
+  assert.equal(r.type, 'wrong');
+  assert.equal(r.guess, 'stegen');
+  assert.equal(r.why, 'this one', 'the reasoning must follow the candidate that won');
 });
 
 // ---------------------------------------------------------------------------

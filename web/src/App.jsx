@@ -103,6 +103,8 @@ const STEP_TEXT = {
   not_base_form: (s) => `gissade ”${s.guess}” — böjd form, inte grundform`,
   unreadable: (s) => `svarade ”${s.reply}” — gick inte att läsa som ett ord`,
   blank: () => 'inget svar från modellen',
+  repeat: (s) => `föreslog ”${s.guess}” igen — redan prövat`,
+  stuck: () => 'inga nya förslag kvar — samma ord om igen',
   deadline: (s) => `tiden tog slut (${(s.budgetMs / 1000).toFixed(0)} s)`,
 };
 
@@ -122,7 +124,12 @@ function TraceDetails({ trace }) {
         ))}
       </ol>
       <p className="trace-foot">
-        AI:n får en rättelse efter varje felaktig gissning och försöker igen.
+        {/* Two different endings, and saying the wrong one is worse than
+            saying nothing: "it tries again" under a list that stops early
+            reads as the retry being broken. */}
+        {trace.at(-1)?.event === 'stuck'
+          ? 'AI:n upprepade ett redan avvisat ord, så vi slutade fråga i stället för att vänta i onödan.'
+          : 'AI:n får en rättelse efter varje felaktig gissning och försöker igen.'}
       </p>
     </details>
   );
