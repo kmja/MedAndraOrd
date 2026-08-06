@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   textOf, parseRuling, guesserSystemPrompt, batchGuesserSystemPrompt,
   parseBatchGuesses, cleanReason, classifyApiError, retryDelayMs,
-  guessCorrection, retryTemperature,
+  retryNote, retryTemperature,
 } from '../server/ai.js';
 import { WORDS } from '../server/words.js';
 import { normalize } from '../server/util.js';
@@ -381,31 +381,62 @@ test('rule 5 does not swallow the evocative clues rule 4 was fixed to allow', ()
   }
 });
 
-test('a retry tells the model what it has already tried', () => {
-  // Without this every round sent the same sentence, and the same sentence at
-  // temperature 0 gets the same answer back. The loop ran its four rounds and
-  // collected four copies of "klock" — retries that fire but cannot diverge.
-  const first = guessCorrection({ guess: 'klock', problem: 'not_word' }, 5, ['klock']);
-  assert.match(first, /redan föreslagit: "klock"/);
-
-  const third = guessCorrection({ guess: 'klok', problem: 'not_word' }, 5, ['klock', 'klok', 'kloka']);
-  for (const g of ['klock', 'klok', 'kloka']) assert.ok(third.includes(`"${g}"`), `missing ${g}`);
-  assert.match(third, /ANNAT ord/);
-
-  // The very first ask has nothing to list, and must not grow a dangling
-  // "already suggested:" with an empty list after it.
-  const clean = guessCorrection({ guess: 'x', problem: 'not_word' }, 5);
-  assert.ok(!clean.includes('redan föreslagit'), 'the first ask has no history to cite');
+test('a retry states what is already ruled out, without staging a dialogue', () => {
+  // The previous version replayed each rejected guess as a `model` turn
+  // followed by a correction. That transcript reads as a worked example of
+  // answering that way, and the model duly returned "klock" three rounds
+  // running. The rulings are now stated by us, in one turn.
+  const note = retryNote([
+    { guess: 'klock', problem: 'not_word' },
+    { guess: 'klockan', problem: 'length', letters: 7 },
+    { guess: 'gravs', problem: 'not_base' },
+  ], 5);
+  for (const g of ['klock', 'klockan', 'gravs']) {
+    assert.ok(note.includes(`"${g}"`), `${g} missing from the ruled-out list`);
+  }
+  assert.match(note, /har 7 bokstäver, inte 5/);
+  assert.match(note, /böjd form/);
+  assert.match(note, /INTE står i listan/);
 });
 
-test('every correction kind carries the tried list', () => {
-  // Three branches, and a retry that forgets its history is useless whichever
-  // branch produced it.
-  for (const problem of ['length', 'not_base', 'not_word']) {
-    const msg = guessCorrection({ guess: 'klock', problem }, 5, ['klock']);
-    assert.match(msg, /redan föreslagit/, `${problem} branch drops the history`);
-    assert.match(msg, /samma JSON-format/, `${problem} branch drops the format reminder`);
+test('a repeated guess is listed once, not once per round', () => {
+  // The model can return the same word again. Listing it three times rebuilds
+  // the very repetition that caused the problem.
+  const note = retryNote(
+    [{ guess: 'klock', problem: 'not_word' }, { guess: 'klock', problem: 'not_word' }],
+    5,
+  );
+  assert.equal(note.match(/"klock"/g).length, 1);
+});
+
+test('the retry never stages a rejected guess as something the model said', async () => {
+  // The property that matters is structural: no `model` turn may carry a
+  // rejected guess back into the context, whatever the wording around it.
+  const { guardedGuesser } = await import('../server/ai.js');
+  let sent = null;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => {
+    sent = JSON.parse(opts.body);
+    const payload = { candidates: [{ content: { parts: [{ text: '{"legal":true,"guess":"kista"}' }] } }] };
+    return {
+      ok: true, status: 200, headers: new Map(),
+      json: async () => payload, text: async () => JSON.stringify(payload),
+    };
+  };
+  process.env.GEMINI_API_KEY ||= 'test-key';
+  try {
+    await guardedGuesser({
+      clue: 'ringande ljud',
+      letterCount: 5,
+      feedback: [{ guess: 'klock', problem: 'not_word' }, { guess: 'klocka', problem: 'length', letters: 6 }],
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
   }
+  assert.ok(sent, 'expected a request to have been made');
+  assert.deepEqual(sent.contents.map((c) => c.role), ['user'], 'the retry must be a single user turn');
+  const text = sent.contents[0].parts.map((p) => p.text).join('');
+  assert.ok(text.includes('"klock"') && text.includes('"klocka"'), 'both rejects must be named');
 });
 
 test('retries are allowed to wander, the first answer is not', () => {

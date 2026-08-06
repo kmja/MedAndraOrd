@@ -96,7 +96,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
 
     if (letterCount(guess) !== targetLetterCount) {
       step(round, 'wrong_length', { tookMs, guess, letters: letterCount(guess), wanted: targetLetterCount });
-      feedback.push({ guess, problem: 'length' });
+      feedback.push({ guess, problem: 'length', letters: letterCount(guess) });
       continue;
     }
 

@@ -183,7 +183,6 @@ async function generate({ system, contents, maxOutputTokens = MAX_TOKENS, json =
 }
 
 const userTurn = (text) => ({ role: 'user', parts: [{ text }] });
-const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
 
 /**
  * GUARDED GUESSER — judge and guess in a single call, still blind.
@@ -210,15 +209,14 @@ const modelTurn = (text) => ({ role: 'model', parts: [{ text }] });
 export async function guardedGuesser({ clue, letterCount, wordClass, feedback = [], onFailure }) {
   const system = guesserSystemPrompt(letterCount, wordClass);
 
-  const contents = [
-    userTurn(`Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.${wordClass ? `\nOrdklass: ${wordClass}.` : ''}`),
-  ];
-  const tried = [];
-  for (const fb of feedback) {
-    contents.push(modelTurn(JSON.stringify({ legal: true, guess: fb.guess })));
-    if (!tried.includes(fb.guess)) tried.push(fb.guess);
-    contents.push(userTurn(guessCorrection(fb, letterCount, tried)));
-  }
+  // One user turn, never a replayed dialogue. Pushing the rejected guesses
+  // back as `model` turns built a transcript that demonstrated the wrong
+  // lesson — three rounds of "when asked this, answer klock", each followed by
+  // an identical complaint. That is few-shot priming for exactly the word we
+  // are asking it to avoid, and no temperature setting beats a pattern the
+  // context is teaching. Rejected guesses are now stated as fact, by us.
+  const ask = `Ledtråd: "${clue}"\nOrdet har ${letterCount} bokstäver.${wordClass ? `\nOrdklass: ${wordClass}.` : ''}`;
+  const contents = [userTurn(feedback.length ? `${ask}\n\n${retryNote(feedback, letterCount)}` : ask)];
 
   try {
     const response = await generate({
@@ -447,30 +445,36 @@ Svara ENDAST med JSON, ett svar per ledtråd, med samma id som i frågan:
 {"answers": [{"id": 1, "legal": true, "guess": "ordet", "why": "kort mening"}, {"id": 2, "legal": false, "reason": "kort motivering"}]}`;
 }
 
-// Two corrections, both about the guess breaking its own rules: wrong length
-// (caught in code) and not a real word (caught by the dictionary). Either way
-// the player wrote a legal clue, so the AI is re-prompted until it complies.
-export function guessCorrection(fb, letterCount, tried = []) {
-  // The list of what has already been rejected is what makes a retry a retry.
-  // Without it every round sent the model the same sentence, and at
-  // temperature 0 the same sentence gets the same answer — the loop ran its
-  // four rounds and collected four copies of one guess.
-  const already = tried.length
-    ? ` Du har redan föreslagit: ${tried.map((g) => `"${g}"`).join(', ')}. Föreslå ett ANNAT ord — upprepa ingen av dem.`
-    : '';
-  if (fb.problem === 'length') {
-    return `"${fb.guess}" har inte exakt ${letterCount} bokstäver. Gissa ett annat ord med exakt ${letterCount} bokstäver.${already} Svara med samma JSON-format.`;
-  }
-  // Told apart from "not a word" on purpose. A genitive or a definite form IS
-  // a Swedish word, and being told otherwise invites the model to argue rather
-  // than to fix the actual fault — which is usually padding a short word out
-  // to reach the letter count.
-  if (fb.problem === 'not_base') {
-    return `"${fb.guess}" är en böjd form, inte grundform. Böj inte ett kortare ord för att komma upp i rätt längd — hitta ett annat ord som redan i grundform har exakt ${letterCount} bokstäver (obestämd form singular för substantiv, infinitiv för verb).${already} Svara med samma JSON-format.`;
-  }
-  return `"${fb.guess}" är inte ett etablerat svenskt ord. Gissa ett riktigt svenskt ord i grundform med exakt ${letterCount} bokstäver.${already} Svara med samma JSON-format.`;
-}
+// Why a guess was sent back, in the player-invisible half of the loop. Each
+// reason names the fault only — the target is never mentioned, so this stays
+// as blind as the first ask.
+const FAULT = {
+  length: (fb, n) => `har ${fb.letters ?? 'fel antal'} bokstäver, inte ${n}`,
+  not_base: () => 'är en böjd form, inte grundform',
+  not_word: () => 'är inget etablerat svenskt ord',
+};
 
+/**
+ * The retry instruction: everything already ruled out, in one user turn.
+ * Exported for tests.
+ *
+ * Stated by us as fact rather than staged as a conversation. The previous
+ * version replayed each rejected guess as a `model` turn followed by a
+ * correction, which reads to the model as a worked example of answering that
+ * way — and it duly repeated the same word for three rounds running.
+ */
+export function retryNote(feedback, letterCount) {
+  const seen = new Map();
+  for (const fb of feedback) {
+    const why = (FAULT[fb.problem] ?? FAULT.not_word)(fb, letterCount);
+    seen.set(fb.guess, why); // last ruling wins; the same word cannot be listed twice
+  }
+  const list = [...seen].map(([guess, why]) => `- "${guess}" ${why}`).join('\n');
+  return `Följande ord är redan prövade och alla FEL:
+${list}
+
+Föreslå ett ord som INTE står i listan. Böj inte ett kortare ord för att komma upp i längd — hitta ett annat ord som redan i grundform har exakt ${letterCount} bokstäver (obestämd form singular för substantiv, infinitiv för verb). Svara med samma JSON-format.`;
+}
 /**
  * How much to let the model wander, given how many corrections it has had.
  * Exported for tests.
