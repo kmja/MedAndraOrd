@@ -445,7 +445,6 @@ test('rule 6 refuses a sibling standing in for the answer', () => {
   for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
     assert.match(prompt, /6\. Pekar ut något ANNAT av samma slag/);
     assert.match(prompt, /syskonsak/);
-    assert.match(prompt, /bryter mot 1–6/, 'a rule that is listed must be enforced');
   }
 });
 
@@ -461,19 +460,90 @@ test('rule 6 keeps the example-of-the-category clue it sits next to', () => {
   }
 });
 
-test('both relation rules are applied where the answer is known', () => {
-  // Every other rule is a property of the clue alone. "Is this a part of the
-  // answer?" and "is this a sibling of the answer?" both need an answer to be
-  // a part or a sibling OF, and the guesser is blind — so the check has to
-  // happen once it has its own guess, or it is unanswerable. Stating them in
-  // step 1 and applying them in step 2 is the only order that works.
+test('every rule deferred to step 2 is actually applied there', () => {
+  // Most rules are a property of the clue alone. The relation rules are not:
+  // "is this a part of the answer", "a sibling of it", "merely associated with
+  // it" all need an answer to relate TO, and the guesser is blind. Each one
+  // defers itself with "se STEG 2", so the set that defers and the set that
+  // step 2 names have to be the same set — derived here rather than listed,
+  // because the list has grown three times and a hardcoded count only breaks
+  // the next time it grows.
   for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
-    for (const rule of ['5. Pekar ut en DEL av saken', '6. Pekar ut något ANNAT av samma slag']) {
+    const deferred = [...prompt.matchAll(/^(\d+)\. [^\n]*se STEG 2/gm)].map((m) => Number(m[1]));
+    assert.ok(deferred.length >= 3, `expected the relation rules to defer, got ${deferred}`);
+
+    const applyLine = prompt.match(/pröva regel ([\d, och]+) mot din egen gissning/);
+    assert.ok(applyLine, 'step 2 must say which rules it applies');
+    const applied = (applyLine[1].match(/\d+/g) ?? []).map(Number);
+    assert.deepEqual(applied.sort(), deferred.sort(),
+      'a rule that defers to step 2 must be one step 2 names');
+
+    for (const n of deferred) {
       assert.ok(
-        prompt.indexOf(rule) < prompt.indexOf('pröva regel 5 och 6 mot din egen gissning'),
-        `${rule} must be stated before the step that applies it`,
+        prompt.indexOf(`${n}. `) < prompt.indexOf(applyLine[0]),
+        `rule ${n} must be stated before the step that applies it`,
       );
+      // And step 2 has to give it a test, not just name it in a list.
+      assert.match(prompt, new RegExp(`Regel ${n} —`), `step 2 states no test for rule ${n}`);
     }
-    assert.equal((prompt.match(/se STEG 2/g) ?? []).length, 2, 'both rules must point forward');
+  }
+});
+
+test('rule 7 refuses a clue that only accompanies the answer', () => {
+  // "guld" solved pokal. Gold is what a trophy is plated with and what winning
+  // is called — neither says what a trophy IS, DOES or is FOR. The clue points
+  // the right way and leaves the letter count to do the rest.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /7\. Namnger något som svaret bara FÖRKNIPPAS med/);
+    // Being MADE of something is the specific trap here, and a model will
+    // happily read "en pokal är av guld" as "en pokal är guld".
+    assert.match(prompt, /GJORT av något räknas inte som att vara det/);
+  }
+});
+
+test('rule 7 ships a sentence test, not a feeling', () => {
+  // The three relation rules are all semantic, which is where rule 4 drifted
+  // into a vibe check and started refusing well-formed clues. Each one
+  // therefore carries something mechanical to apply.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    for (const frame of ['ÄR ...', 'används till ...', 'gör eller orsakar ...', 'liknar ...']) {
+      assert.ok(prompt.includes(frame), `rule 7 is missing the "${frame}" frame`);
+    }
+  }
+});
+
+test('rule 7 keeps the two clue kinds earlier fixes were written for', () => {
+  // "blött plask" survives on "orsakar" — a boot causes a wet splash — and
+  // "nilen" på the example carve-out. Both were fought for explicitly, and a
+  // rule about association is exactly the kind that would quietly take them
+  // back.
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    assert.match(prompt, /gör eller orsakar/, '"blött plask" survives on this frame');
+    assert.match(prompt, /"nilen" för flod/, 'the example carve-out must be restated inside rule 7');
+    assert.match(prompt, /förblir tillåtet/);
+  }
+});
+
+test('no refused illustration shares a first word with an allowed one, in any rule', () => {
+  // The original bug was rule 4 specific: the banned "blöt plask barn" made the
+  // legal "blött plask" look like the start of it. The same confusion is
+  // available in every rule that quotes examples, so the check now reads all of
+  // them rather than the one that happened to break.
+  const firstWord = (s) => s.trim().split(/\s+/)[0].toLowerCase();
+  for (const prompt of [guesserSystemPrompt(5), batchGuesserSystemPrompt()]) {
+    const allowed = [...prompt.matchAll(/"([^"]+)"\s+TILLÅTEN/g)].map((m) => m[1]);
+    // Everything quoted inside a numbered rule is an illustration of BREAKING
+    // it — that is what the numbered rules are for.
+    const rules = prompt.slice(prompt.indexOf('1. Inte är svenska'), prompt.indexOf('JÄMFÖR NOGA'));
+    const refused = [...rules.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(allowed.length >= 3 && refused.length >= 5, 'expected worked examples on both sides');
+    for (const bad of refused) {
+      for (const good of allowed) {
+        assert.notStrictEqual(
+          firstWord(bad), firstWord(good),
+          `refused "${bad}" and allowed "${good}" open with the same word`,
+        );
+      }
+    }
   }
 });

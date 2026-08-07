@@ -378,7 +378,7 @@ export const WORDS = [
   { word: 'klubba', forbidden: ['hockey', 'golf', 'slå', 'puck', 'skaft'] },
   { word: 'puck', forbidden: ['hockey', 'is', 'gummi', 'svart', 'rund'] },
   { word: 'medalj', forbidden: ['guld', 'vinna', 'hänga', 'tävling', 'hals'] },
-  { word: 'pokal', forbidden: ['vinna', 'silver', 'pris', 'tävling', 'hylla'] },
+  { word: 'pokal', forbidden: ['vinna', 'silver', 'guld', 'pris', 'tävling', 'hylla'] },
   { word: 'tävling', forbidden: ['vinna', 'först', 'delta', 'pris', 'sport'] },
   { word: 'hopp', forbidden: ['studsa', 'höjd', 'ben', 'luft', 'längd'] },
   { word: 'löpning', forbidden: ['springa', 'ben', 'spår', 'snabb', 'motion'] },
