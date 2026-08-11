@@ -2,7 +2,7 @@
 // Re-plans the daily schedule after words have been added.
 //
 //   npm run rotation              visa vad som skulle ändras
-//   npm run rotation -- --apply   skriv om server/rotation.js
+//   npm run rotation -- --apply   skriv om server/locales/sv/rotation.js
 //
 // The rule this exists to keep: a day that has already been played must never
 // change its word. Everything from today backwards is copied across untouched;
@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { WORDS } from '../server/words.js';
-import { ROTATION, ROTATION_EPOCH } from '../server/rotation.js';
+import { ROTATION, ROTATION_EPOCH } from '../server/locales/sv/rotation.js';
 import { dayNumber, todayInZone } from '../server/util.js';
 import { LOCALE } from '../server/locale.js';
 
@@ -78,7 +78,7 @@ for (let i = 0; i < 7; i++) {
 
 if (moved > 0 || !permutationOk) process.exit(1);
 if (!apply) {
-  console.log('\nKör med --apply för att skriva om server/rotation.js.');
+  console.log('\nKör med --apply för att skriva om server/locales/sv/rotation.js.');
   process.exit(0);
 }
 
@@ -87,4 +87,4 @@ const header = src.slice(0, src.indexOf('export const ROTATION_EPOCH'));
 const rows = [];
 for (let i = 0; i < next.length; i += 16) rows.push('  ' + next.slice(i, i + 16).join(', ') + ',');
 fs.writeFileSync(file, `${header}export const ROTATION_EPOCH = ${ROTATION_EPOCH};\n\nexport const ROTATION = [\n${rows.join('\n')}\n];\n`);
-console.log(`\nSkrev ${next.length} platser till server/rotation.js. Kör \`npm test\`.`);
+console.log(`\nSkrev ${next.length} platser till server/locales/sv/rotation.js. Kör \`npm test\`.`);

@@ -179,14 +179,14 @@ export async function nameHandler(req, res) {
   }
   const name = sanitizeName(raw);
   if (!name) {
-    return send(res, 400, { error: 'Det namnet går inte att använda. Prova ett annat.' });
+    return send(res, 400, { error: LOCALE.errors.badName });
   }
   await store.setName(pid, name);
   send(res, 200, { name });
 }
 
 export async function randomHandler(req, res) {
-  if (!PRACTICE_ENABLED) return send(res, 404, { error: 'Övningsläget är avstängt.' });
+  if (!PRACTICE_ENABLED) return send(res, 404, { error: LOCALE.errors.practiceOff });
   const { index: todayIndex } = wordForDate(gameDate());
   const entry = randomWord(todayIndex);
   send(res, 200, {
@@ -203,25 +203,25 @@ export async function clueHandler(req, res) {
   const store = getStore();
   const pid = getPlayerId(req, res);
   if (rateLimited(pid)) {
-    return send(res, 429, { error: 'För många försök på kort tid. Vänta en stund.' });
+    return send(res, 429, { error: LOCALE.errors.rateLimited });
   }
 
   const body = parseBody(req);
   const clue = typeof body.clue === 'string' ? body.clue.trim() : '';
-  if (!clue) return send(res, 400, { error: 'Ingen ledtråd angiven.' });
-  if (clue.length > 200) return send(res, 400, { error: 'Ledtråden är för lång.' });
+  if (!clue) return send(res, 400, { error: LOCALE.errors.noClue });
+  if (clue.length > 200) return send(res, 400, { error: LOCALE.errors.clueTooLong });
 
   const date = gameDate();
   const today = wordForDate(date);
 
   // ---- Practice mode: judged identically, recorded nowhere. ----
   if (body.practice) {
-    if (!PRACTICE_ENABLED) return send(res, 404, { error: 'Övningsläget är avstängt.' });
+    if (!PRACTICE_ENABLED) return send(res, 404, { error: LOCALE.errors.practiceOff });
     const entry = wordByIndex(Number(body.wordIndex));
-    if (!entry) return send(res, 400, { error: 'Okänt övningsord.' });
+    if (!entry) return send(res, 400, { error: LOCALE.errors.unknownPracticeWord });
     // Practising on the live word would be a free way around the daily limit.
     if (entry.index === today.index) {
-      return send(res, 403, { error: 'Dagens ord kan inte övas på. Slumpa ett annat ord.' });
+      return send(res, 403, { error: LOCALE.errors.practiceOnToday });
     }
     const key = `${entry.index}:${normalize(clue)}`;
     let verdict = practiceCache.get(key);
@@ -233,10 +233,10 @@ export async function clueHandler(req, res) {
         });
       } catch (err) {
         if (err instanceof AiUnavailableError) {
-          return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund.' });
+          return send(res, 503, { error: LOCALE.errors.aiUnavailable });
         }
         console.error('judgeClue (practice) failed:', err);
-        return send(res, 500, { error: 'Något gick fel.' });
+        return send(res, 500, { error: LOCALE.errors.generic });
       }
       // Same rule as the daily path: an AI failure is not a ruling about the
       // clue, it is transient misbehaviour. Caching it froze the clue as
@@ -252,7 +252,7 @@ export async function clueHandler(req, res) {
   const puzzle = puzzleKey(date, index);
   const attempts = await store.getAttempts(puzzle, pid);
   if (attempts >= MAX_ATTEMPTS) {
-    return send(res, 403, { error: 'Du har inga försök kvar idag. Nytt ord imorgon.' });
+    return send(res, 403, { error: LOCALE.errors.outOfAttempts });
   }
 
   const normClue = normalize(clue);
@@ -269,10 +269,10 @@ export async function clueHandler(req, res) {
       });
     } catch (err) {
       if (err instanceof AiUnavailableError) {
-        return send(res, 503, { error: 'AI:n svarar inte just nu. Försök igen om en stund — inget försök förbrukades.' });
+        return send(res, 503, { error: LOCALE.errors.aiUnavailableNoCost });
       }
       console.error('judgeClue failed:', err);
-      return send(res, 500, { error: 'Något gick fel. Inget försök förbrukades.' });
+      return send(res, 500, { error: LOCALE.errors.genericNoCost });
     }
     if (isCacheableVerdict(verdict)) {
       await store.cacheVerdict(puzzle, clueKey(normClue), verdict, verdictTtlSeconds(verdict));

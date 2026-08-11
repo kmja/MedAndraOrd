@@ -10,19 +10,22 @@ import {
   letterRarity as letterRarityWith,
   compareClues as compareCluesWith,
 } from '../server/util.js';
-import { inflectionsOf, compoundStemsOf, looksInflected, morphology } from '../server/locales/sv/morphology.js';
+import { inflectionsOf, compoundStemsOf, looksInflected } from '../server/locales/sv/morphology.js';
+import { LOCALE } from '../server/locale.js';
 import { LETTER_FREQUENCY, UNLISTED_FREQUENCY } from '../server/locales/sv/frequency.js';
-import { COLLATION } from '../server/locale.js';
+
 
 // The engine takes the language as a parameter now — see server/locale.js.
 // These tests are about Swedish, so they bind it once here rather than at every
 // call site, which keeps the assertions about the rules rather than the wiring.
 const checkClueCode = (clue, target, forbidden, maxLength) =>
-  checkClueCodeWith(clue, target, forbidden, maxLength, morphology);
+  checkClueCodeWith(clue, target, forbidden, maxLength, LOCALE);
 const letterRarity = (s) => letterRarityWith(s, LETTER_FREQUENCY, UNLISTED_FREQUENCY);
-const compareClues = (a, b) => compareCluesWith(a, b, COLLATION);
+const compareClues = (a, b) => compareCluesWith(a, b, {
+  frequency: LETTER_FREQUENCY, unlisted: UNLISTED_FREQUENCY, collation: 'sv',
+});
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
-import { ROTATION, ROTATION_EPOCH } from '../server/rotation.js';
+import { ROTATION, ROTATION_EPOCH } from '../server/locales/sv/rotation.js';
 import {
   runGuesserLoop, judgeClue, costsAttempt, isCacheableVerdict, MAX_GUESS_ROUNDS,
 } from '../server/game.js';

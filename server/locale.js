@@ -1,9 +1,15 @@
 import { morphology as svMorphology } from './locales/sv/morphology.js';
 import { LETTER_FREQUENCY as svFrequency, UNLISTED_FREQUENCY as svUnlisted } from './locales/sv/frequency.js';
 import { prompt as svPrompt } from './locales/sv/prompt.js';
+import { WORDS as svWords } from './locales/sv/words.js';
+import * as svMessages from './locales/sv/messages.js';
+import { ROTATION as svRotation, ROTATION_EPOCH as svEpoch } from './locales/sv/rotation.js';
 import { morphology as enMorphology } from './locales/en/morphology.js';
 import { LETTER_FREQUENCY as enFrequency, UNLISTED_FREQUENCY as enUnlisted } from './locales/en/frequency.js';
 import { prompt as enPrompt } from './locales/en/prompt.js';
+import { WORDS as enWords } from './locales/en/words.js';
+import * as enMessages from './locales/en/messages.js';
+import { ROTATION as enRotation, ROTATION_EPOCH as enEpoch } from './locales/en/rotation.js';
 
 /**
  * Which language is being played, resolved once at startup.
@@ -34,6 +40,15 @@ const LOCALES = {
     frequency: svFrequency,
     unlistedFrequency: svUnlisted,
     prompt: svPrompt,
+    words: svWords,
+    rotation: svRotation,
+    rotationEpoch: svEpoch,
+    // The word class shown to the player and given to the guesser for any entry
+    // that does not name one.
+    defaultWordClass: 'substantiv',
+    clueMessages: svMessages.clueMessages,
+    fallbackRefusal: svMessages.FALLBACK_REFUSAL,
+    errors: svMessages.errors,
   },
   en: {
     code: 'en',
@@ -47,6 +62,13 @@ const LOCALES = {
     frequency: enFrequency,
     unlistedFrequency: enUnlisted,
     prompt: enPrompt,
+    words: enWords,
+    rotation: enRotation,
+    rotationEpoch: enEpoch,
+    defaultWordClass: 'noun',
+    clueMessages: enMessages.clueMessages,
+    fallbackRefusal: enMessages.FALLBACK_REFUSAL,
+    errors: enMessages.errors,
   },
 };
 

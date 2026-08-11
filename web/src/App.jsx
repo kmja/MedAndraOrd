@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from 'react';
 // The server still runs these; it stays authoritative. This is only so an
 // obviously illegal clue never starts the reveal animation.
 import { checkClueCode } from '../../server/util.js';
-import { morphology } from './locale.js';
+import { language } from './locale.js';
 
 // A request that never settles leaves the reveal animation running forever,
 // which reads as the game being broken rather than as a request being slow.
@@ -675,7 +675,7 @@ export default function App() {
     // Checked here as well as on the server, purely so the reveal does not
     // start for a clue that cannot possibly reach the model. Building
     // suspense and then throwing it away is worse than an immediate no.
-    const refused = checkClueCode(text, active.word, active.forbidden, state.maxClueLength, morphology);
+    const refused = checkClueCode(text, active.word, active.forbidden, state.maxClueLength, language);
     if (refused) {
       setNotice({ kind: 'rejected', text: refused.reason });
       buzz();

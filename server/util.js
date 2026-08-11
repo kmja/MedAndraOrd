@@ -178,30 +178,32 @@ export function looksInflectedWith(word, isWord, candidateBases, inflectionsOf) 
   return true;
 }
 
-export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH, morphology) {
+/**
+ * `language` carries the two things this needs from the locale: how words are
+ * formed, and what to tell the player. Injected rather than imported so this
+ * file stays free of both — the browser runs the same function, and the text
+ * has to come out in the language being played.
+ */
+export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH, language) {
+  const { morphology, clueMessages: msg } = language;
+  const refuse = (code, params = {}) => ({ code, reason: msg[code](params) });
   const raw = String(clue ?? '');
   const n = normalize(raw);
 
   if (n.length === 0) {
-    return { code: 'empty', reason: 'Ledtråden är tom.' };
+    return refuse('empty');
   }
   if (clueLength(raw) > maxLength) {
-    return {
-      code: 'too_long',
-      reason: `Ledtråden får vara högst ${maxLength} tecken (mellanslag räknas inte).`,
-    };
+    return refuse('too_long', { maxLength });
   }
   if (EMOJI_RE.test(raw)) {
-    return { code: 'emoji', reason: 'Emoji är inte tillåtna i ledtråden.' };
+    return refuse('emoji');
   }
   if (FRAGMENT_RE.test(raw.trim())) {
-    return {
-      code: 'fragment',
-      reason: 'Ledtråden får inte vara en halv sammansättning att fylla i. Beskriv ordet i stället.',
-    };
+    return refuse('fragment');
   }
   if (n.includes(normalize(target))) {
-    return { code: 'contains_target', reason: 'Ledtråden innehåller det hemliga ordet.' };
+    return refuse('contains_target');
   }
   // Inflections, which the substring test above cannot see: "stövlar" is not a
   // substring of "stövel". Short forms are matched as whole words only —
@@ -209,7 +211,7 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
   const words = new Set(n.split(/[^\p{L}]+/u).filter(Boolean));
   for (const form of morphology.inflectionsOf(target)) {
     if (form.length >= 5 ? n.includes(form) : words.has(form)) {
-      return { code: 'contains_inflection', reason: 'Ledtråden innehåller en böjning av det hemliga ordet.' };
+      return refuse('contains_inflection');
     }
   }
   // Compounds built ON the target: "kyrkklocka", "kyrkogård". Matched as a word
@@ -218,16 +220,13 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
   for (const stem of morphology.compoundStemsOf(target)) {
     for (const w of words) {
       if (w.startsWith(stem)) {
-        return {
-          code: 'contains_compound',
-          reason: 'Ledtråden bygger på det hemliga ordet i en sammansättning.',
-        };
+        return refuse('contains_compound');
       }
     }
   }
   for (const f of forbidden) {
     if (n.includes(normalize(f))) {
-      return { code: 'contains_forbidden', reason: `Ledtråden innehåller det förbjudna ordet ”${f}”.` };
+      return refuse('contains_forbidden', { word: f });
     }
   }
   return null;

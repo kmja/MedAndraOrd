@@ -392,7 +392,7 @@ Spärrade ord: ${forbidden.join(', ') || '(inga)'}`;
 
 /** The deterministic half, unchanged: free, and identical in both modes. */
 function codeVerdict(item) {
-  const v = checkClueCode(item.clue, item.entry.word, item.entry.forbidden, CLUE_LIMIT_CEILING, LOCALE.morphology);
+  const v = checkClueCode(item.clue, item.entry.word, item.entry.forbidden, CLUE_LIMIT_CEILING, LOCALE);
   return v ? { type: 'rejected', reason: v.reason, source: 'code' } : null;
 }
 

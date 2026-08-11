@@ -105,7 +105,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
 
     if (result.legal === false) {
       step(round, 'refused', { tookMs, reason: result.reason ?? null });
-      return { type: 'rejected', reason: result.reason || 'Ledtråden bryter mot reglerna.' };
+      return { type: 'rejected', reason: result.reason || LOCALE.fallbackRefusal };
     }
 
     // A retry asks for several alternatives at once, so a round can carry more
@@ -209,7 +209,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
 export async function judgeClue({ clue, target, forbidden, maxLength, wordClass, ai = defaultAi }) {
   // 1. Deterministic checks — free, before any API call. The length limit is
   // per word (see clueLimitFor), so it has to travel with the call.
-  const codeVerdict = checkClueCode(clue, target, forbidden, maxLength, LOCALE.morphology);
+  const codeVerdict = checkClueCode(clue, target, forbidden, maxLength, LOCALE);
   if (codeVerdict) {
     return { type: 'rejected', reason: codeVerdict.reason, source: 'code' };
   }
