@@ -125,4 +125,17 @@ export function looksInflected(word, isWord) {
   return looksInflectedWith(word, isWord, candidateBases, inflectionsOf);
 }
 
-export const morphology = { inflectionsOf, compoundStemsOf, looksInflected };
+/**
+ * Does a clue use a forbidden word?
+ *
+ * Plain substring, because Swedish compounds concatenate: "gud" really is
+ * inside "gudshus", and the head of a compound comes second, so the word can
+ * sit anywhere. Over-blocking is the known cost — "gudshus" is a fair clue
+ * that gets refused — and it is the right cost here, because the alternative
+ * lets every compound route through.
+ */
+export function matchesForbidden(normalizedClue, clueWords, forbidden) {
+  return normalizedClue.includes(forbidden);
+}
+
+export const morphology = { inflectionsOf, compoundStemsOf, looksInflected, matchesForbidden };

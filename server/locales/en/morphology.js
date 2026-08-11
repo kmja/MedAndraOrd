@@ -175,4 +175,33 @@ export function looksInflected(word, isWord, isBaseForm) {
   return looksInflectedWith(word, isWord, candidateBases, inflectionsOf);
 }
 
-export const morphology = { inflectionsOf, compoundStemsOf, looksInflected };
+/**
+ * Does a clue use a forbidden word?
+ *
+ * NOT a plain substring test, which is what Swedish uses and what this did at
+ * first. Swedish can afford it because its compounds concatenate; English
+ * cannot, and the damage was severe. "king" on palace's list refused every
+ * clue containing "making", "taking" or "asking"; "ice" on frosty's refused
+ * "nice", "price", "voice" and "slice"; "wing" refused "swing" and "showing".
+ *
+ * So: the whole word, or a word that BEGINS with it. English compounds put the
+ * modifier first — "kingdom", "bedroom", "iceberg", "wingspan" — so a prefix
+ * catches the routes worth catching, while "making" and "nice" merely contain
+ * the letters somewhere in the middle or at the end and are left alone.
+ *
+ * Suffixes are deliberately not matched: "making" ends in "king" and "shop"
+ * ends in "hop", so that direction reintroduces exactly the problem. The cost
+ * is that a compound with the forbidden word second ("waterbed" against "bed")
+ * gets through — an under-block, which costs one clue rather than a whole
+ * vocabulary.
+ */
+export function matchesForbidden(normalizedClue, clueWords, forbidden) {
+  if (clueWords.has(forbidden)) return true;
+  if (forbidden.length < 3) return false;
+  for (const word of clueWords) {
+    if (word.length > forbidden.length && word.startsWith(forbidden)) return true;
+  }
+  return false;
+}
+
+export const morphology = { inflectionsOf, compoundStemsOf, looksInflected, matchesForbidden };

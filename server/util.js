@@ -224,8 +224,10 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
       }
     }
   }
+  // How a forbidden word is matched is a fact about the language, not about
+  // the rules — Swedish compounds concatenate and English ones do not.
   for (const f of forbidden) {
-    if (n.includes(normalize(f))) {
+    if (morphology.matchesForbidden(n, words, normalize(f))) {
       return refuse('contains_forbidden', { word: f });
     }
   }

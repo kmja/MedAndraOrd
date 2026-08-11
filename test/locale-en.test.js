@@ -200,3 +200,42 @@ test('the English letter frequencies are a usable distribution', () => {
   // An unlisted character must not be a free tiebreak win.
   assert.ok(UNLISTED_FREQUENCY > LETTER_FREQUENCY.z && UNLISTED_FREQUENCY < LETTER_FREQUENCY.e);
 });
+
+test('a forbidden word is matched as a word, not as a run of letters', async () => {
+  // The bug this pins was severe. Forbidden words were substring-matched, which
+  // Swedish can afford because its compounds concatenate. In English it meant
+  // "king" on palace's list refused every clue containing "making", "taking" or
+  // "asking"; "ice" on frosty's refused "nice", "price", "voice" and "slice".
+  const { matchesForbidden } = await import('../server/locales/en/morphology.js');
+  const words = (clue) => new Set(clue.split(' '));
+
+  // Blocked: the word itself, and compounds that start with it — which is
+  // where English puts the modifier.
+  for (const [clue, forbidden] of [
+    ['king seat', 'king'], ['kingdom seat', 'king'],
+    ['iceberg weather', 'ice'], ['wingspan of myth', 'wing'],
+    ['archway over a gap', 'arch'], ['bedroom cover', 'bed'],
+  ]) {
+    assert.equal(matchesForbidden(clue, words(clue), forbidden), true, `${clue} / ${forbidden}`);
+  }
+
+  // Allowed: the letters appear, but not as a word or a leading element.
+  for (const [clue, forbidden] of [
+    ['making a home', 'king'], ['taking turns', 'king'], ['asking politely', 'king'],
+    ['nice and sharp', 'ice'], ['a fair price', 'ice'], ['her voice', 'ice'],
+    ['showing teeth', 'wing'], ['a swing', 'wing'],
+    ['a search', 'arch'], ['march past', 'arch'],
+    ['a bride', 'ride'], ['with pride', 'ride'],
+  ]) {
+    assert.equal(matchesForbidden(clue, words(clue), forbidden), false, `${clue} / ${forbidden}`);
+  }
+});
+
+test('Swedish keeps substring matching, because its compounds concatenate', async () => {
+  // Not an oversight that the two differ. "gud" really is inside "gudshus",
+  // and a Swedish compound puts its head second, so the forbidden word can sit
+  // anywhere in the string.
+  const { matchesForbidden } = await import('../server/locales/sv/morphology.js');
+  assert.equal(matchesForbidden('gudshus', new Set(['gudshus']), 'gud'), true);
+  assert.equal(matchesForbidden('domkyrka', new Set(['domkyrka']), 'kyrka'), true);
+});
