@@ -225,3 +225,24 @@ test('the two editions cannot share a leaderboard', async () => {
   const store = readFileSync(new URL('../server/store.js', import.meta.url), 'utf8');
   assert.match(store, /const NAMES_KEY = `names:\$\{LOCALE\.code\}`/);
 });
+
+test('en: the bank is not a collection of lonely words', async () => {
+  // The first English bank was authored on taste and had a MEDIAN OF ZERO
+  // same-length rivals: for 34 of 52 scorable words, a clue pointing roughly at
+  // the category had exactly one place to land. That is the "obvious solution"
+  // problem, and nothing caught it until it was measured.
+  //
+  // This does not re-derive the metric — that lives in scripts/word-density.mjs
+  // and needs WordNet, a devDependency. It pins the cheap half: a bank whose
+  // words are mostly long and unusual is one that has drifted back that way,
+  // because length is what starves a word of same-length relatives.
+  const { WORDS } = await import('../server/locales/en/words.js');
+  const lengths = WORDS.map((e) => e.word.length);
+  const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
+  assert.ok(mean < 6, `mean target length ${mean.toFixed(1)} — long words have few rivals`);
+  const long = WORDS.filter((e) => e.word.length >= 8);
+  assert.ok(
+    long.length <= WORDS.length / 10,
+    `${long.length} targets of 8+ letters: ${long.map((e) => e.word).join(', ')}`,
+  );
+});

@@ -41,6 +41,13 @@ try {
   process.exit(1);
 }
 
+/** lemma -> number of senses, for one part of speech. Polysemy is the second
+ * axis: a word with several live senses gives the clue-writer double meanings
+ * to work with, which is the crossword device, and gives the guesser more ways
+ * to go wrong. It is also a decent proxy for commonness — English piles senses
+ * onto its everyday words. */
+const SENSES = {};
+
 /** lemma -> synset offsets, for one part of speech. */
 function readIndex(pos) {
   const map = new Map();
@@ -52,6 +59,8 @@ function readIndex(pos) {
     // The offsets are the last synset_cnt fields on the line.
     const synsetCount = Number(parts[2]);
     map.set(lemma, parts.slice(-synsetCount));
+    SENSES[pos] ??= new Map();
+    SENSES[pos].set(lemma, synsetCount);
   }
   return map;
 }
@@ -112,8 +121,19 @@ function siblingsOf(word, pos) {
 }
 
 function score(word, declaredClass) {
-  const pos = declaredClass === 'verb' ? 'verb' : 'noun';
   if (declaredClass === 'adjective') return { word, unscored: true };
+
+  // With no class declared — the command-line path — try both and keep the
+  // better. Scoring "gather" as a noun reported 0 rivals when the verb has 16,
+  // which is the tool quietly lying about the thing it exists to measure.
+  if (!declaredClass) {
+    const both = ['noun', 'verb'].map((p) => score(word, p === 'verb' ? 'verb' : 'noun_forced'));
+    const scored = both.filter((s) => !s.unscored);
+    if (!scored.length) return { word, unscored: true };
+    return scored.reduce((a, b) => (b.rivals > a.rivals ? b : a));
+  }
+
+  const pos = declaredClass === 'verb' ? 'verb' : 'noun';
   const siblings = siblingsOf(word, pos);
   if (!siblings) return { word, unscored: true };
   const sameLength = [...siblings].filter((s) => s.length === word.length);
@@ -121,11 +141,56 @@ function score(word, declaredClass) {
     word,
     siblings: siblings.size,
     rivals: sameLength.length,
+    senses: SENSES[pos]?.get(word) ?? 0,
+    pos,
     examples: sameLength.slice(0, 5),
   };
 }
 
+/**
+ * Candidates for a bank, ranked by the two properties that make a target
+ * resist an obvious clue: a crowded same-length neighbourhood, and several
+ * senses to be clever with.
+ *
+ * Deliberately only a shortlist. It cannot tell whether a word is one an
+ * ordinary player knows — "carina" and "syrinx" score well and belong nowhere
+ * near a word bank — so the output is for reading, not for pasting.
+ */
+function candidates({ minRivals, minSenses, minLen, maxLen }) {
+  const out = [];
+  for (const pos of ['noun', 'verb']) {
+    for (const [word] of INDEX[pos]) {
+      if (word.length < minLen || word.length > maxLen) continue;
+      const senses = SENSES[pos].get(word) ?? 0;
+      if (senses < minSenses) continue;
+      const s = score(word, pos === 'verb' ? 'verb' : undefined);
+      if (s.unscored || s.rivals < minRivals) continue;
+      out.push({ ...s, pos });
+    }
+  }
+  // Sense count first: a word nobody knows is useless however crowded its
+  // neighbourhood, and polysemy is the better filter for "everyday".
+  return out.sort((a, b) => (b.senses - a.senses) || (b.rivals - a.rivals));
+}
+
 const args = process.argv.slice(2);
+
+if (args[0] === '--candidates') {
+  const [, minRivals = '5', minSenses = '4', minLen = '4', maxLen = '8'] = args;
+  const found = candidates({
+    minRivals: Number(minRivals),
+    minSenses: Number(minSenses),
+    minLen: Number(minLen),
+    maxLen: Number(maxLen),
+  });
+  console.log(`${found.length} candidates with >= ${minRivals} rivals and >= ${minSenses} senses\n`);
+  console.log('senses  rivals  word         pos');
+  for (const c of found.slice(0, Number(process.env.LIMIT || 200))) {
+    console.log(`${String(c.senses).padStart(6)}  ${String(c.rivals).padStart(6)}  ${c.word.padEnd(12)} ${c.pos}`);
+  }
+  process.exit(0);
+}
+
 let entries;
 if (args.length) {
   entries = args.map((w) => ({ word: w, class: undefined }));

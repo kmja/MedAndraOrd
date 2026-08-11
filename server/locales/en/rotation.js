@@ -7,20 +7,21 @@
 // different word. Appending here extends the runway without disturbing a day
 // that already has one.
 //
-// The order is a stride permutation of the bank (stride 23, coprime with
-// 60), so consecutive days are far apart in the array.
+// The order is a stride permutation of the bank (stride 25, coprime with
+// 66), so consecutive days are far apart in the array.
 //
-// EPOCH is the day this bank was authored. Sixty entries is roughly two months
-// of play; after that it wraps, which is the signal to extend the bank rather
-// than to let it repeat.
+// EPOCH is unchanged from the first English bank: nothing has been played yet,
+// so there is no day to protect, and keeping it means the calendar starts the
+// day the edition was first built rather than drifting with each rewrite.
 
 export const ROTATION_EPOCH = 20676;
 
 export const ROTATION = [
-  0, 23, 46, 9, 32, 55, 18, 41, 4, 27,
-  50, 13, 36, 59, 22, 45, 8, 31, 54, 17,
-  40, 3, 26, 49, 12, 35, 58, 21, 44, 7,
-  30, 53, 16, 39, 2, 25, 48, 11, 34, 57,
-  20, 43, 6, 29, 52, 15, 38, 1, 24, 47,
-  10, 33, 56, 19, 42, 5, 28, 51, 14, 37,
+  0, 25, 50, 9, 34, 59, 18, 43, 2, 27,
+  52, 11, 36, 61, 20, 45, 4, 29, 54, 13,
+  38, 63, 22, 47, 6, 31, 56, 15, 40, 65,
+  24, 49, 8, 33, 58, 17, 42, 1, 26, 51,
+  10, 35, 60, 19, 44, 3, 28, 53, 12, 37,
+  62, 21, 46, 5, 30, 55, 14, 39, 64, 23,
+  48, 7, 32, 57, 16, 41,
 ];

@@ -1,86 +1,102 @@
 // The English word bank. Hand-authored — writing the forbidden lists is the
 // Taboo craft, and each list blocks the most obvious clue routes for its word.
 //
-// Sixty words: two months of daily play. Deliberately small. The forbidden
-// lists are where this game is won or lost, and three consecutive days of live
-// Swedish play each turned up a route the list had missed — so a short bank
-// that can be corrected from real play beats a long one authored blind.
+// CHOSEN ON TWO MEASURED PROPERTIES, after a first pass was authored on taste
+// and turned out to be far too easy. Run `npm run density` to see them.
 //
-// Every target here is checked against three things by the tests: it is a real
-// word in server/data/en-words-*.txt, it does NOT appear anywhere in the
-// English prompt (a target named in the rulebook is a target the guesser can
-// reach for on a vague clue), and it carries a forbidden list of its own.
+//   RIVALS — how many same-length words share a parent in WordNet. The guesser
+//   is told the letter count and the word class, so a target with no
+//   same-length relatives can be reached by pointing roughly at its area. The
+//   first bank had a MEDIAN OF ZERO: 34 of 52 scorable words had nowhere else
+//   a category clue could land. This one has a median of 21.
 //
-// Verbs are listed in the infinitive without to; adjectives in the positive
-// degree. Everything unlabelled is a noun — see LOCALE.defaultWordClass.
+//   POLYSEMY — several live senses. crane is a bird, a machine and something
+//   you do with your neck; spring is a season, a coil, a water source and a
+//   jump. That is the crossword device, and it gives the player something to be
+//   clever WITH rather than merely something to describe.
 //
-// The rotation in ./rotation.js is a permutation of THIS array's indices. The
-// two must be replaced as a pair, or the calendar silently repoints.
+// The counter-intuitive part, and the reason the first bank failed: specific,
+// unusual words score WORSE, not better. lighthouse, orchard, windmill
+// and telescope all have zero rivals — being specific shrinks the answer
+// space, and a small answer space is what makes the guesser's job easy.
 //
-// Not yet calibrated. The per-word `limit` that the Swedish bank carries comes
-// from probe runs, and English has had none — the model is markedly stronger in
-// English, so the clue limits almost certainly want to be tighter here. Until
-// then every word falls back to the global default.
-
+// The metric selects for abstraction if you let it lead (work, turn,
+// point top the list), so the division of labour is: judgment proposes
+// concrete everyday words, the measurement filters them. Neither alone
+// produced a usable bank.
+//
+// Every target here is checked by the tests: a real word AND a lemma in
+// server/data/en-*.txt, absent from the English prompt, labelled with a word
+// class WordNet agrees with, and carrying a forbidden list.
+//
+// Not yet calibrated against the model. The per-word `limit` the Swedish bank
+// carries comes from probe runs; English has had none, so every word falls
+// back to the global default and the limits are probably too generous.
 export const WORDS = [
-  { word: 'anchor', forbidden: ['ship', 'harbour', 'heavy', 'chain', 'seabed'] },
-  { word: 'basket', forbidden: ['carry', 'weave', 'handle', 'picnic', 'basketball'] },
-  { word: 'bridge', forbidden: ['cross', 'water', 'span', 'arch', 'roadway'] },
-  { word: 'candle', forbidden: ['flame', 'wick', 'melt', 'birthday', 'candlelight'] },
-  { word: 'desert', forbidden: ['sand', 'camel', 'thirst', 'dune', 'arid'] },
-  { word: 'dragon', forbidden: ['fire', 'myth', 'scale', 'wing', 'beast'] },
-  { word: 'engine', forbidden: ['motor', 'power', 'machine', 'piston', 'engineer'] },
-  { word: 'forest', forbidden: ['tree', 'wood', 'green', 'timber', 'undergrowth'] },
-  { word: 'garden', forbidden: ['plant', 'flower', 'grow', 'soil', 'gardener'] },
+  { word: 'barrel', forbidden: ['cask', 'keg', 'wine', 'gun', 'cylinder'] },
+  { word: 'bank', forbidden: ['money', 'river', 'savings', 'teller', 'slope'] },
+  { word: 'bark', forbidden: ['tree', 'dog', 'canine', 'timber', 'yelp'] },
+  { word: 'board', forbidden: ['plank', 'wood', 'committee', 'chess', 'embark'] },
+  { word: 'bridge', forbidden: ['cross', 'span', 'arch', 'roadway', 'dental'] },
+  { word: 'brush', forbidden: ['bristle', 'paint', 'sweep', 'thicket', 'hair'] },
+  { word: 'cast', forbidden: ['throw', 'mould', 'actor', 'plaster', 'fishing'] },
+  { word: 'chamber', forbidden: ['room', 'heart', 'gun', 'council', 'cavity'] },
+  { word: 'channel', forbidden: ['water', 'broadcast', 'strait', 'groove', 'route'] },
+  { word: 'charm', forbidden: ['spell', 'bracelet', 'magic', 'allure', 'luck'] },
+  { word: 'clip', forbidden: ['fasten', 'paper', 'shorten', 'film', 'staple'] },
+  { word: 'counter', forbidden: ['kitchen', 'shop', 'oppose', 'tally', 'desk'] },
+  { word: 'court', forbidden: ['tennis', 'royal', 'judge', 'woo', 'yard'] },
+  { word: 'crane', forbidden: ['bird', 'lift', 'neck', 'stork', 'construction'] },
+  { word: 'crown', forbidden: ['king', 'head', 'tooth', 'royal', 'tiara'] },
+  { word: 'dock', forbidden: ['harbour', 'boat', 'court', 'wharf', 'pier'] },
+  { word: 'dragon', forbidden: ['fire', 'myth', 'scale', 'beast', 'lizard'] },
+  { word: 'drum', forbidden: ['beat', 'percussion', 'barrel', 'stick', 'rhythm'] },
+  { word: 'fork', forbidden: ['cutlery', 'road', 'prong', 'branch', 'split'] },
+  { word: 'frame', forbidden: ['picture', 'border', 'skeleton', 'structure', 'window'] },
+  { word: 'glass', forbidden: ['window', 'drink', 'transparent', 'tumbler', 'lens'] },
+  { word: 'grain', forbidden: ['wheat', 'wood', 'seed', 'cereal', 'texture'] },
   { word: 'hammer', forbidden: ['nail', 'tool', 'strike', 'carpenter', 'mallet'] },
-  { word: 'helmet', forbidden: ['head', 'protect', 'cycle', 'visor', 'armour'] },
-  { word: 'island', forbidden: ['surrounded', 'shore', 'ocean', 'isolated', 'archipelago'] },
-  { word: 'jacket', forbidden: ['coat', 'sleeve', 'zipper', 'garment', 'outerwear'] },
-  { word: 'jungle', forbidden: ['tropical', 'dense', 'vine', 'monkey', 'rainforest'] },
-  { word: 'kettle', forbidden: ['boil', 'spout', 'water', 'teapot', 'whistle'] },
-  { word: 'ladder', forbidden: ['climb', 'rung', 'reach', 'step', 'scaffold'] },
-  { word: 'lantern', forbidden: ['light', 'glow', 'carry', 'paraffin', 'lamplight'] },
-  { word: 'magnet', forbidden: ['attract', 'iron', 'pull', 'north', 'magnetic'] },
-  { word: 'mirror', forbidden: ['reflect', 'glass', 'image', 'looking', 'reflection'] },
-  { word: 'needle', forbidden: ['sharp', 'thread', 'sew', 'point', 'stitch'] },
-  { word: 'orchard', forbidden: ['apple', 'tree', 'fruit', 'grove', 'harvest'] },
-  { word: 'palace', forbidden: ['king', 'royal', 'grand', 'throne', 'monarch'] },
-  { word: 'pebble', forbidden: ['stone', 'small', 'beach', 'smooth', 'gravel'] },
-  { word: 'pumpkin', forbidden: ['orange', 'seed', 'halloween', 'gourd', 'lantern'] },
-  { word: 'puzzle', forbidden: ['solve', 'piece', 'jigsaw', 'riddle', 'brainteaser'] },
-  { word: 'rabbit', forbidden: ['burrow', 'carrot', 'hutch', 'warren', 'whiskers'] },
-  { word: 'rocket', forbidden: ['space', 'launch', 'thrust', 'orbit', 'spacecraft'] },
-  { word: 'saddle', forbidden: ['horse', 'ride', 'leather', 'stirrup', 'harness'] },
-  { word: 'shadow', forbidden: ['light', 'cast', 'dark', 'silhouette', 'shade'] },
-  { word: 'statue', forbidden: ['stone', 'sculpture', 'monument', 'pedestal', 'bronze'] },
-  { word: 'thunder', forbidden: ['lightning', 'storm', 'rumble', 'cloud', 'thunderstorm'] },
-  { word: 'tunnel', forbidden: ['dig', 'underground', 'passage', 'bore', 'excavate'] },
-  { word: 'wallet', forbidden: ['money', 'card', 'leather', 'cash', 'billfold'] },
-  { word: 'window', forbidden: ['glass', 'pane', 'view', 'frame', 'windowsill'] },
-  { word: 'gather', forbidden: ['collect', 'assemble', 'together', 'harvest', 'accumulate'], class: 'verb' },
-  { word: 'linger', forbidden: ['remain', 'delay', 'stay', 'dawdle', 'loiter'], class: 'verb' },
-  { word: 'polish', forbidden: ['shine', 'rub', 'gloss', 'buff', 'lustre'], class: 'verb' },
-  { word: 'scatter', forbidden: ['spread', 'disperse', 'strew', 'apart', 'sprinkle'], class: 'verb' },
-  { word: 'shiver', forbidden: ['cold', 'tremble', 'shake', 'chill', 'quiver'], class: 'verb' },
-  { word: 'stumble', forbidden: ['trip', 'fall', 'clumsy', 'totter', 'falter'], class: 'verb' },
-  { word: 'wander', forbidden: ['roam', 'stroll', 'aimless', 'ramble', 'meander'], class: 'verb' },
-  { word: 'whisper', forbidden: ['quiet', 'murmur', 'softly', 'hush', 'undertone'], class: 'verb' },
-  { word: 'brittle', forbidden: ['fragile', 'snap', 'crack', 'breakable', 'delicate'], class: 'adjective' },
-  { word: 'gentle', forbidden: ['soft', 'kind', 'mild', 'tender', 'soothing'], class: 'adjective' },
-  { word: 'hollow', forbidden: ['empty', 'cavity', 'inside', 'void', 'echoing'], class: 'adjective' },
-  { word: 'narrow', forbidden: ['thin', 'tight', 'slender', 'cramped', 'constricted'], class: 'adjective' },
-  { word: 'rugged', forbidden: ['rough', 'harsh', 'craggy', 'terrain', 'weathered'], class: 'adjective' },
-  { word: 'tender', forbidden: ['soft', 'gentle', 'sore', 'affectionate', 'delicate'], class: 'adjective' },
-  { word: 'vivid', forbidden: ['bright', 'colour', 'striking', 'intense', 'brilliant'], class: 'adjective' },
-  { word: 'frosty', forbidden: ['cold', 'ice', 'chill', 'freezing', 'wintry'], class: 'adjective' },
-  { word: 'chalk', forbidden: ['board', 'white', 'dust', 'blackboard', 'limestone'] },
-  { word: 'ember', forbidden: ['fire', 'glow', 'coal', 'smoulder', 'ashes'] },
-  { word: 'torch', forbidden: ['beam', 'flame', 'battery', 'flashlight', 'lantern'] },
-  { word: 'quilt', forbidden: ['bed', 'stitch', 'patchwork', 'blanket', 'coverlet'] },
-  { word: 'maple', forbidden: ['tree', 'syrup', 'leaf', 'canada', 'sapling'] },
-  { word: 'pearl', forbidden: ['oyster', 'necklace', 'lustre', 'gemstone', 'iridescent'] },
-  { word: 'anvil', forbidden: ['blacksmith', 'iron', 'forge', 'metal', 'smithy'] },
-  { word: 'globe', forbidden: ['sphere', 'world', 'atlas', 'round', 'cartography'] },
-  { word: 'windmill', forbidden: ['wind', 'blade', 'grind', 'flour', 'turbine'] },
-  { word: 'scaffold', forbidden: ['build', 'platform', 'construction', 'framework', 'pole'] },
+  { word: 'horn', forbidden: ['animal', 'brass', 'trumpet', 'antler', 'honk'] },
+  { word: 'kettle', forbidden: ['boil', 'spout', 'teapot', 'whistle', 'water'] },
+  { word: 'lock', forbidden: ['key', 'door', 'canal', 'hair', 'secure'] },
+  { word: 'match', forbidden: ['fire', 'game', 'pair', 'strike', 'contest'] },
+  { word: 'mint', forbidden: ['herb', 'coin', 'fresh', 'sweet', 'money'] },
+  { word: 'nail', forbidden: ['hammer', 'finger', 'spike', 'claw', 'fasten'] },
+  { word: 'needle', forbidden: ['thread', 'sew', 'sharp', 'pine', 'syringe'] },
+  { word: 'palm', forbidden: ['hand', 'tree', 'tropical', 'frond', 'fist'] },
+  { word: 'pattern', forbidden: ['repeat', 'design', 'template', 'motif', 'habit'] },
+  { word: 'pitch', forbidden: ['throw', 'field', 'sound', 'tar', 'sales'] },
+  { word: 'plane', forbidden: ['fly', 'tool', 'flat', 'aircraft', 'wing'] },
+  { word: 'plant', forbidden: ['grow', 'factory', 'garden', 'seed', 'vegetation'] },
+  { word: 'plate', forbidden: ['dish', 'dinner', 'metal', 'armour', 'tectonic'] },
+  { word: 'pool', forbidden: ['swim', 'water', 'billiard', 'puddle', 'shared'] },
+  { word: 'post', forbidden: ['mail', 'pole', 'job', 'letter', 'fence'] },
+  { word: 'ring', forbidden: ['finger', 'bell', 'circle', 'boxing', 'jewel'] },
+  { word: 'root', forbidden: ['tree', 'origin', 'dig', 'radish', 'source'] },
+  { word: 'saddle', forbidden: ['horse', 'ride', 'leather', 'stirrup', 'burden'] },
+  { word: 'scale', forbidden: ['weigh', 'fish', 'music', 'climb', 'measure'] },
+  { word: 'screen', forbidden: ['display', 'hide', 'monitor', 'filter', 'window'] },
+  { word: 'seal', forbidden: ['animal', 'close', 'stamp', 'envelope', 'flipper'] },
+  { word: 'section', forbidden: ['part', 'divide', 'slice', 'chapter', 'segment'] },
+  { word: 'shell', forbidden: ['snail', 'beach', 'bomb', 'husk', 'crustacean'] },
+  { word: 'slide', forbidden: ['slip', 'playground', 'glass', 'chute', 'descend'] },
+  { word: 'spring', forbidden: ['season', 'coil', 'water', 'jump', 'bounce'] },
+  { word: 'stamp', forbidden: ['mail', 'foot', 'seal', 'postage', 'imprint'] },
+  { word: 'stem', forbidden: ['flower', 'stalk', 'originate', 'glass', 'plant'] },
+  { word: 'stick', forbidden: ['wood', 'glue', 'branch', 'adhere', 'cane'] },
+  { word: 'temple', forbidden: ['worship', 'head', 'shrine', 'forehead', 'sacred'] },
+  { word: 'tide', forbidden: ['sea', 'moon', 'ebb', 'flood', 'current'] },
+  { word: 'track', forbidden: ['railway', 'follow', 'trail', 'running', 'record'] },
+  { word: 'trunk', forbidden: ['tree', 'elephant', 'luggage', 'torso', 'car'] },
+  { word: 'wave', forbidden: ['sea', 'hand', 'greet', 'ripple', 'radio'] },
+  { word: 'wheel', forbidden: ['turn', 'car', 'spoke', 'circle', 'steer'] },
+  { word: 'window', forbidden: ['glass', 'pane', 'view', 'frame', 'opportunity'] },
+  { word: 'crack', forbidden: ['break', 'split', 'fissure', 'joke', 'whip'], class: 'verb' },
+  { word: 'drift', forbidden: ['float', 'snow', 'wander', 'current', 'aimless'], class: 'verb' },
+  { word: 'gather', forbidden: ['collect', 'assemble', 'harvest', 'crowd', 'accumulate'], class: 'verb' },
+  { word: 'linger', forbidden: ['remain', 'delay', 'dawdle', 'loiter', 'stay'], class: 'verb' },
+  { word: 'scatter', forbidden: ['spread', 'disperse', 'strew', 'sprinkle', 'apart'], class: 'verb' },
+  { word: 'settle', forbidden: ['sink', 'resolve', 'inhabit', 'calm', 'sediment'], class: 'verb' },
+  { word: 'sweep', forbidden: ['broom', 'clean', 'curve', 'victory', 'chimney'], class: 'verb' },
+  { word: 'wander', forbidden: ['roam', 'stroll', 'ramble', 'meander', 'aimless'], class: 'verb' },
 ];
