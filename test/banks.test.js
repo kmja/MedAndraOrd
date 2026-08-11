@@ -165,3 +165,45 @@ test('the locales agree on which errors exist', async () => {
     );
   }
 });
+
+test('en: every bank entry is labelled with a word class WordNet agrees with', async () => {
+  // The class is shown to the player and given to the guesser, so a wrong label
+  // makes a word unwinnable: the model is told to answer with a verb and the
+  // answer is a noun. Nothing else checks this — the labels were hand-written.
+  //
+  // WordNet indexes lemmas by part of speech, so it can answer directly. It is
+  // a devDependency: the check belongs at authoring time, not at runtime.
+  const { createRequire } = await import('node:module');
+  const require = createRequire(import.meta.url);
+  let dictDir;
+  try {
+    dictDir = require('wordnet-db').path;
+  } catch {
+    return; // not installed — this is an authoring aid, not a runtime guarantee
+  }
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+
+  const byPos = {};
+  for (const pos of ['noun', 'verb', 'adj']) {
+    byPos[pos] = new Set();
+    for (const line of readFileSync(join(dictDir, `index.${pos}`), 'utf8').split('\n')) {
+      if (!line || line.startsWith(' ')) continue;
+      const lemma = line.split(' ')[0];
+      if (/^[a-z]+$/.test(lemma)) byPos[pos].add(lemma);
+    }
+  }
+  const EXPECTED = { noun: 'noun', verb: 'verb', adjective: 'adj' };
+
+  const { WORDS } = await import('../server/locales/en/words.js');
+  const wrong = [];
+  for (const entry of WORDS) {
+    const declared = entry.class ?? 'noun';
+    const pos = EXPECTED[declared];
+    assert.ok(pos, `${entry.word}: unknown class "${declared}"`);
+    // A word may belong to several classes — "polish" is both noun and verb.
+    // The test is only that the declared one is among them.
+    if (!byPos[pos].has(entry.word)) wrong.push(`${entry.word} is labelled ${declared}`);
+  }
+  assert.deepEqual(wrong, [], `WordNet disagrees with these labels: ${wrong.join('; ')}`);
+});

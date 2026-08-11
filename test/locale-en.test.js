@@ -71,6 +71,80 @@ test('English has no compound stems, and that is the right answer', () => {
   }
 });
 
+// The lemma index, read straight from the shards for the same reason.
+const lemmaShards = new Map();
+function isBaseForm(word) {
+  const w = String(word ?? '').toLowerCase();
+  if (!w) return false;
+  const len = w.length;
+  if (!lemmaShards.has(len)) {
+    try {
+      const raw = fs.readFileSync(new URL(`../server/data/en-lemmas-${len}.txt`, import.meta.url), 'utf8');
+      lemmaShards.set(len, new Set(raw.split('\n').filter(Boolean)));
+    } catch {
+      lemmaShards.set(len, null);
+    }
+  }
+  const set = lemmaShards.get(len);
+  return set === null ? null : set.has(w);
+}
+
+test('the lemma index shipped, and holds no inflected forms', () => {
+  // The whole point of the second list: it answers "is this a BASE form", which
+  // a full-form list cannot. If inflections crept in, the exact check silently
+  // degrades to accepting everything.
+  for (const lemma of ['church', 'city', 'mouse', 'anchor', 'knife']) {
+    assert.equal(isBaseForm(lemma), true, `${lemma} should be a lemma`);
+  }
+  for (const inflected of ['churches', 'cities', 'mice', 'anchors', 'knives']) {
+    assert.equal(isBaseForm(inflected), false, `${inflected} must not be a lemma`);
+    assert.equal(isWord(inflected), true, 'and it is still a real word');
+  }
+});
+
+test('with the lemma index the base-form check is exact, not heuristic', () => {
+  // A real word that is not a lemma is an inflected form, by definition. This
+  // replaces the two-test heuristic, which had to infer it and got "running"
+  // and "making" wrong.
+  for (const w of ['churches', 'cities', 'knives', 'mice', 'anchors', 'happiest']) {
+    assert.equal(looksInflected(w, isWord, isBaseForm), true, `${w} should be inflected`);
+  }
+  for (const w of ['church', 'city', 'knife', 'mouse', 'anchor', 'morning', 'building', 'species']) {
+    assert.equal(looksInflected(w, isWord, isBaseForm), false, `${w} is a base form`);
+  }
+});
+
+test('participles English uses as adjectives are lemmas, and are accepted', () => {
+  // "stopped" is in the lemma index — English says "a stopped clock", so it is
+  // an adjective in its own right, not only the past tense of "stop". The
+  // exact check therefore accepts it, and that is the data being right rather
+  // than the check being loose.
+  //
+  // The residual cost: for a NOUN target, "stopped" is a wrong-class guess that
+  // gets through as an ordinary miss. Closing that would mean checking the
+  // lemma's part of speech against the target's word class — WordNet carries
+  // the tags to do it, and the class is already known. Worth doing only if
+  // wrong-class guesses turn out to be common in play.
+  assert.equal(isBaseForm('stopped'), true);
+  assert.equal(looksInflected('stopped', isWord, isBaseForm), false);
+});
+
+test('the exact check accepts gerunds the heuristic could not settle', () => {
+  // "running" and "making" are lemmas in their own right — English uses them as
+  // nouns — so accepting them is correct rather than a miss. The heuristic
+  // arrived at the same answer for the wrong reason, by way of "runnings"
+  // happening to be in the dictionary.
+  assert.equal(isBaseForm('running'), true);
+  assert.equal(looksInflected('running', isWord, isBaseForm), false);
+});
+
+test('a missing lemma index falls back to the heuristic rather than giving up', () => {
+  // The data ships in server/data, which the serverless bundle includes — but a
+  // missing file should cost accuracy, not the whole check.
+  assert.equal(looksInflected('churches', isWord, () => null), true);
+  assert.equal(looksInflected('church', isWord, () => null), false);
+});
+
 test('looksInflected catches inflected guesses', () => {
   const caught = ['churches', 'cities', 'knives', 'bigger', 'potatoes', 'mice',
     'trophies', 'judged', 'carried', 'happiest', 'leaves', 'boxes', 'stopped'];

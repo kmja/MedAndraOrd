@@ -1,7 +1,7 @@
 import { checkClueCode, normalize, clueLength, letterCount, extractWord } from './util.js';
 import { LOCALE } from './locale.js';
 import * as defaultAi from './ai.js';
-import { isRealWord } from './dictionary.js';
+import { isRealWord, isBaseForm } from './dictionary.js';
 
 /**
  * Attempts per player per day, or Infinity for no limit.
@@ -168,7 +168,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       // above and went on screen as the AI's answer. Same treatment as a
       // wrong-length guess: the clue was legal, so re-prompt rather than let a
       // half-word stand as the round's result.
-      if (LOCALE.morphology.looksInflected(guess, isRealWord)) {
+      if (LOCALE.morphology.looksInflected(guess, isRealWord, isBaseForm)) {
         step(round, 'not_base_form', { tookMs, guess });
         feedback.push({ guess, problem: 'not_base' });
         continue;

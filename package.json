@@ -15,6 +15,7 @@
     "check:ai": "node scripts/check-ai.mjs",
     "build:dictionary": "node --max-old-space-size=3000 scripts/build-dictionary.mjs",
     "build:dictionary:en": "node scripts/build-dictionary-en.mjs",
+    "build:lemmas:en": "node scripts/build-lemmas-en.mjs",
     "review:words": "node --max-old-space-size=2000 scripts/review-words.mjs",
     "probe": "node scripts/probe-word.mjs",
     "limits": "node scripts/apply-limits.mjs",
@@ -31,7 +32,9 @@
   },
   "devDependencies": {
     "@cspell/dict-sv": "^2.3.2",
+    "word-list": "^3.0.0",
     "cspell-trie-lib": "^10.0.1",
-    "dictionary-sv": "^4.0.0"
+    "dictionary-sv": "^4.0.0",
+    "wordnet-db": "^3.1.14"
   }
 }

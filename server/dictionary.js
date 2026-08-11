@@ -25,28 +25,30 @@ const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data');
 // consulted, and a day has exactly one target length, so a running instance
 // touches one shard — loading the whole 5.5 MB list would cost ~950 ms of cold
 // start for no benefit.
-const _shards = new Map(); // length -> Set | null (null = shard unavailable)
+const _shards = new Map(); // `${kind}:${len}` -> Set | null (null = unavailable)
 
-function shard(len) {
-  if (_shards.has(len)) return _shards.get(len);
+function shard(kind, len) {
+  const key = `${kind}:${len}`;
+  if (_shards.has(key)) return _shards.get(key);
   let set = null;
   try {
-    const raw = fs.readFileSync(path.join(DIR, `${LOCALE.code}-words-${len}.txt`), 'utf8');
+    const raw = fs.readFileSync(path.join(DIR, `${LOCALE.code}-${kind}-${len}.txt`), 'utf8');
     set = new Set(raw.split('\n').filter(Boolean));
   } catch (err) {
-    // A missing shard for a length we have no words for is normal; anything
-    // else means the data did not ship, and callers should fail open.
-    if (err.code !== 'ENOENT') console.error('dictionary shard failed:', err.message);
+    // A missing shard for a length we have no words for is normal, and a
+    // language with no lemma list at all is normal too — see isBaseForm.
+    // Anything else means the data did not ship, and callers fail open.
+    if (err.code !== 'ENOENT') console.error(`dictionary shard failed (${key}):`, err.message);
   }
-  _shards.set(len, set);
+  _shards.set(key, set);
   return set;
 }
 
 /** Words available for a given length. Exposed for diagnostics and tests. */
 export function dictionarySize(len) {
-  if (len != null) return shard(len)?.size ?? 0;
+  if (len != null) return shard('words', len)?.size ?? 0;
   let total = 0;
-  for (let l = 2; l <= 12; l++) total += shard(l)?.size ?? 0;
+  for (let l = 2; l <= 12; l++) total += shard('words', l)?.size ?? 0;
   return total;
 }
 
@@ -59,9 +61,29 @@ export function dictionarySize(len) {
 export function isRealWord(word) {
   const w = normalize(word);
   if (!w) return false;
-  const set = shard([...w].length);
+  const set = shard('words', [...w].length);
   if (set === null) return null; // data missing → unknown, not "fake"
   return set.has(w);
+}
+
+/**
+ * Is this word a BASE form — a lemma — rather than an inflection of one?
+ * Returns true/false, or null when the language has no lemma list.
+ *
+ * A separate question from isRealWord, and a separate list. The word list is
+ * full-form, so it says yes to "churches" and "gravs"; the guesser is asked for
+ * base forms, and telling the two apart from a full-form list alone needs a
+ * heuristic. Where a lemma list exists the answer is exact instead: a real word
+ * that is not a lemma is an inflected form, by definition.
+ *
+ * Null is not a failure. Swedish has no lemma list, and callers fall back to
+ * the heuristic — see the locale's morphology.
+ */
+export function isBaseForm(word) {
+  const w = normalize(word);
+  if (!w) return false;
+  const set = shard('lemmas', [...w].length);
+  return set === null ? null : set.has(w);
 }
 
 // The old name, kept so nothing that imports it breaks mid-refactor. New code

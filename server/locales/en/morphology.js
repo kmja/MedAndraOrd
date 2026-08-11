@@ -150,9 +150,28 @@ function candidateBases(w) {
   return [...out];
 }
 
-/** Is this an inflected form rather than the base form the guesser was asked for? */
-export function looksInflected(word, isWord) {
+/**
+ * Is this an inflected form rather than the base form the guesser was asked for?
+ *
+ * Exact when a lemma list is available, which for English it is: a word the
+ * dictionary knows but the lemma index does not is an inflected form, by
+ * definition. That replaces the heuristic below, which had to infer the same
+ * thing from a full-form list and got "running" and "making" wrong.
+ *
+ * `isBaseForm` answers null when the lemma data did not ship. The heuristic
+ * stays for that case rather than failing open completely — a missing file
+ * should cost accuracy, not the whole check.
+ */
+export function looksInflected(word, isWord, isBaseForm) {
   if (INVARIANT_PLURALS.has(normalize(word))) return false;
+
+  const lemma = isBaseForm?.(word);
+  if (lemma != null) {
+    // Only a definite "this is a word" may combine with "not a lemma" to
+    // reject. An unknown word is already refused by the dictionary check that
+    // runs first, and an outage must not start refusing guesses here.
+    return isWord(word) === true && lemma === false;
+  }
   return looksInflectedWith(word, isWord, candidateBases, inflectionsOf);
 }
 

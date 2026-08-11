@@ -114,7 +114,13 @@ const candidateBases = (w) => INFLECTION_SUFFIXES
   .filter((suffix) => w.endsWith(suffix))
   .map((suffix) => w.slice(0, -suffix.length));
 
-/** Is this an inflected form rather than the base form the guesser was asked for? */
+/**
+ * Is this an inflected form rather than the base form the guesser was asked for?
+ *
+ * Heuristic, because the Swedish data is a full-form list and there is no lemma
+ * index to check against. English has one and answers this exactly; if a
+ * Swedish lemma list ever ships, this should do the same.
+ */
 export function looksInflected(word, isWord) {
   return looksInflectedWith(word, isWord, candidateBases, inflectionsOf);
 }
