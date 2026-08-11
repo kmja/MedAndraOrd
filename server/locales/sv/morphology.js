@@ -109,9 +109,14 @@ export function compoundStemsOf(word) {
 const INFLECTION_SUFFIXES = ['s', 'n', 't', 'a', 'e', 'en', 'et', 'er', 'ar', 'or', 'na', 'ns',
   'ts', 'ets', 'ens', 'arna', 'erna', 'orna', 'ade', 'at'];
 
+/** Swedish only ever adds letters, so undoing an inflection is stripping one. */
+const candidateBases = (w) => INFLECTION_SUFFIXES
+  .filter((suffix) => w.endsWith(suffix))
+  .map((suffix) => w.slice(0, -suffix.length));
+
 /** Is this an inflected form rather than the base form the guesser was asked for? */
 export function looksInflected(word, isWord) {
-  return looksInflectedWith(word, isWord, INFLECTION_SUFFIXES, inflectionsOf);
+  return looksInflectedWith(word, isWord, candidateBases, inflectionsOf);
 }
 
 export const morphology = { inflectionsOf, compoundStemsOf, looksInflected };

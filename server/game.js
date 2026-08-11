@@ -1,7 +1,7 @@
 import { checkClueCode, normalize, clueLength, letterCount, extractWord } from './util.js';
 import { LOCALE } from './locale.js';
 import * as defaultAi from './ai.js';
-import { isSwedishWord } from './dictionary.js';
+import { isRealWord } from './dictionary.js';
 
 /**
  * Attempts per player per day, or Infinity for no limit.
@@ -156,7 +156,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       // Otherwise the dictionary decides, in code and for free, whether this is
       // a legitimate miss or a confabulation. A confabulation is the AI breaking
       // its own rules, so it is re-prompted rather than passed on to the player.
-      const real = isSwedishWord(guess); // null → dictionary unavailable → fail open
+      const real = isRealWord(guess); // null → dictionary unavailable → fail open
       if (real === false) {
         step(round, 'not_a_word', { tookMs, guess });
         feedback.push({ guess, problem: 'not_word' });
@@ -168,7 +168,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       // above and went on screen as the AI's answer. Same treatment as a
       // wrong-length guess: the clue was legal, so re-prompt rather than let a
       // half-word stand as the round's result.
-      if (LOCALE.morphology.looksInflected(guess, isSwedishWord)) {
+      if (LOCALE.morphology.looksInflected(guess, isRealWord)) {
         step(round, 'not_base_form', { tookMs, guess });
         feedback.push({ guess, problem: 'not_base' });
         continue;

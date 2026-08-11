@@ -1,5 +1,7 @@
 import { morphology as svMorphology } from './locales/sv/morphology.js';
 import { LETTER_FREQUENCY as svFrequency, UNLISTED_FREQUENCY as svUnlisted } from './locales/sv/frequency.js';
+import { morphology as enMorphology } from './locales/en/morphology.js';
+import { LETTER_FREQUENCY as enFrequency, UNLISTED_FREQUENCY as enUnlisted } from './locales/en/frequency.js';
 
 /**
  * Which language is being played, resolved once at startup.
@@ -30,6 +32,18 @@ const LOCALES = {
     frequency: svFrequency,
     unlistedFrequency: svUnlisted,
   },
+  en: {
+    code: 'en',
+    // A guess, and the one setting here that is a product decision rather than
+    // a fact about the language: an English edition has no single home time
+    // zone. London keeps the two editions' days roughly in step, which makes
+    // them easy to reason about together. Override with ORDKNAPP_TIMEZONE.
+    timeZone: 'Europe/London',
+    collation: 'en',
+    morphology: enMorphology,
+    frequency: enFrequency,
+    unlistedFrequency: enUnlisted,
+  },
 };
 
 const requested = process.env.ORDKNAPP_LOCALE || 'sv';
@@ -42,7 +56,13 @@ if (!LOCALES[requested]) {
   );
 }
 
-export const LOCALE = LOCALES[requested];
+export const LOCALE = {
+  ...LOCALES[requested],
+  // The day boundary is the one locale setting a deployment might reasonably
+  // want to move without a code change — an English edition aimed at a US
+  // audience should not turn over mid-afternoon.
+  timeZone: process.env.ORDKNAPP_TIMEZONE || LOCALES[requested].timeZone,
+};
 
 /** The subset compareClues needs, so callers pass one thing rather than three. */
 export const COLLATION = {

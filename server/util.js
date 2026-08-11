@@ -158,17 +158,19 @@ const FRAGMENT_RE = /(\.{2,}|…|^-|-$|^\s*-|-\s*$)/;
  * Deliberately biased toward letting things through: a wrong rejection costs a
  * player their round, a miss costs one odd-looking guess.
  */
-export function looksInflectedWith(word, isWord, suffixes, inflectionsOf) {
+export function looksInflectedWith(word, isWord, candidateBases, inflectionsOf) {
   const w = normalize(word);
   if (!w) return false;
-  const strips = suffixes.some((suffix) => {
-    if (!w.endsWith(suffix)) return false;
-    const base = w.slice(0, -suffix.length);
+  // `candidateBases` rather than a list of suffixes, because undoing an
+  // inflection is not always removing letters: English turns "cities" back into
+  // "city" and "running" back into "run". Swedish only ever strips, so its
+  // implementation is a one-liner over a suffix list.
+  const strips = candidateBases(w).some((base) => (
     // `isWord` can also answer null for "dictionary unavailable", and only a
     // definite yes may be used to reject — otherwise an outage would start
     // refusing guesses.
-    return base.length >= 3 && isWord(base) === true && inflectionsOf(base).has(w);
-  });
+    base.length >= 3 && base !== w && isWord(base) === true && inflectionsOf(base).has(w)
+  ));
   if (!strips) return false;
   for (const form of inflectionsOf(w)) {
     if (isWord(form) === true) return false; // it inflects, so it is a lemma

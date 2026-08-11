@@ -3,8 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { normalize } from './util.js';
+import { LOCALE } from './locale.js';
 
-// Swedish word list, used to judge the AI's *guess* — never the player's clue.
+// The word list for the language being played, used to judge the AI's *guess*
+// — never the player's clue.
 // That distinction matters: requiring dictionary words from players would ban
 // exactly the invented compounds and unusual imagery the game is for. The
 // guesser, by contrast, is explicitly told to answer with a real established
@@ -13,9 +15,9 @@ import { normalize } from './util.js';
 // Replaces what used to be a second model call, which is what keeps every
 // outcome at one request.
 //
-// Source: Den Stora Svenska Ordlistan via the `dictionary-sv` package,
-// LGPL-3.0, © Göran Andersson. Licence travels with the data in
-// server/data/sv-words.LICENSE. Regenerate with `npm run build:dictionary`.
+// One list per locale, named <code>-words-<length>.txt, chosen by the active
+// locale. Each list ships its own licence beside it in server/data/.
+// Regenerate with `npm run build:dictionary`.
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data');
 
@@ -29,7 +31,7 @@ function shard(len) {
   if (_shards.has(len)) return _shards.get(len);
   let set = null;
   try {
-    const raw = fs.readFileSync(path.join(DIR, `sv-words-${len}.txt`), 'utf8');
+    const raw = fs.readFileSync(path.join(DIR, `${LOCALE.code}-words-${len}.txt`), 'utf8');
     set = new Set(raw.split('\n').filter(Boolean));
   } catch (err) {
     // A missing shard for a length we have no words for is normal; anything
@@ -49,15 +51,20 @@ export function dictionarySize(len) {
 }
 
 /**
- * Is this a real Swedish word?
+ * Is this a real word in the language being played?
  * Returns true/false, or null when the word list could not be read — callers
  * treat null as "unknown" and fail open, exactly as the old model-based
  * verifier did.
  */
-export function isSwedishWord(word) {
+export function isRealWord(word) {
   const w = normalize(word);
   if (!w) return false;
   const set = shard([...w].length);
   if (set === null) return null; // data missing → unknown, not "fake"
   return set.has(w);
 }
+
+// The old name, kept so nothing that imports it breaks mid-refactor. New code
+// should use isRealWord — the function stopped being about Swedish when the
+// language became a parameter.
+export { isRealWord as isSwedishWord };
