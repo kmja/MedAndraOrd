@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 
 import { WORDS } from '../server/words.js';
 import { ROTATION, ROTATION_EPOCH } from '../server/rotation.js';
-import { dayNumber, todayInStockholm } from '../server/util.js';
+import { dayNumber, todayInZone } from '../server/util.js';
+import { LOCALE } from '../server/locale.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const file = path.join(root, 'server', 'rotation.js');
@@ -27,7 +28,7 @@ const apply = process.argv.includes('--apply');
 
 const STRIDE = 97; // coprime with most bank sizes; only used to spread themes
 
-const today = dayNumber(todayInStockholm());
+const today = dayNumber(todayInZone(LOCALE.timeZone));
 const frozenCount = Math.max(0, Math.min(ROTATION.length, today - ROTATION_EPOCH + 1));
 const frozen = ROTATION.slice(0, frozenCount);
 

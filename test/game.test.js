@@ -2,11 +2,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  normalize, charCount, clueLength, letterCount, checkClueCode, extractWord,
-  dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING, inflectionsOf,
-  clueLimitFor, suggestedLimit, compoundStemsOf, looksInflected, sanitizeName, MAX_NAME_LENGTH,
-  letterRarity, whitespaceCount, compareClues, LETTER_FREQUENCY,
+  normalize, charCount, clueLength, letterCount, extractWord,
+  dayNumber, MAX_CLUE_LENGTH, CLUE_LIMIT_FLOOR, CLUE_LIMIT_CEILING,
+  clueLimitFor, suggestedLimit, sanitizeName, MAX_NAME_LENGTH,
+  whitespaceCount,
+  checkClueCode as checkClueCodeWith,
+  letterRarity as letterRarityWith,
+  compareClues as compareCluesWith,
 } from '../server/util.js';
+import { inflectionsOf, compoundStemsOf, looksInflected, morphology } from '../server/locales/sv/morphology.js';
+import { LETTER_FREQUENCY, UNLISTED_FREQUENCY } from '../server/locales/sv/frequency.js';
+import { COLLATION } from '../server/locale.js';
+
+// The engine takes the language as a parameter now — see server/locale.js.
+// These tests are about Swedish, so they bind it once here rather than at every
+// call site, which keeps the assertions about the rules rather than the wiring.
+const checkClueCode = (clue, target, forbidden, maxLength) =>
+  checkClueCodeWith(clue, target, forbidden, maxLength, morphology);
+const letterRarity = (s) => letterRarityWith(s, LETTER_FREQUENCY, UNLISTED_FREQUENCY);
+const compareClues = (a, b) => compareCluesWith(a, b, COLLATION);
 import { WORDS, wordForDate, wordByIndex, randomWord } from '../server/words.js';
 import { ROTATION, ROTATION_EPOCH } from '../server/rotation.js';
 import {

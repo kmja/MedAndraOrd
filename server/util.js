@@ -67,32 +67,17 @@ export function normalize(s) {
     .trim();
 }
 
-/**
- * How often each letter occurs in Swedish, as a percentage.
- * Used only as a tiebreaker: between two clues of the same length, the one
- * built from rarer letters is the harder feat and ranks higher.
- */
-export const LETTER_FREQUENCY = {
-  a: 10.04, e: 9.85, t: 8.89, n: 8.45, r: 7.88, s: 5.32, i: 5.01, d: 4.90,
-  l: 4.81, o: 4.06, m: 3.55, g: 3.44, k: 3.24, h: 2.85, v: 2.55, ä: 2.10,
-  u: 1.86, f: 1.81, c: 1.71, å: 1.66, p: 1.57, ö: 1.50, b: 1.31, j: 0.90,
-  y: 0.49, x: 0.11, w: 0.06, z: 0.04, q: 0.01,
-};
-
-// An unlisted letter (é, à, …) gets roughly the mean, so reaching for an exotic
-// character is not a free way to win a tiebreak.
-const UNLISTED_FREQUENCY = 3.4;
 
 /**
  * Summed letter frequency of a clue. **Lower is rarer, and rarer wins.**
  * Comparing sums is fair because this only ever runs between clues of equal
  * length, so both sums have the same number of terms.
  */
-export function letterRarity(s) {
+export function letterRarity(s, frequency, unlisted) {
   let sum = 0;
   for (const c of normalize(s)) {
     if (!/\p{L}/u.test(c)) continue;
-    sum += LETTER_FREQUENCY[c] ?? UNLISTED_FREQUENCY;
+    sum += frequency[c] ?? unlisted;
   }
   return sum;
 }
@@ -106,18 +91,23 @@ export function whitespaceCount(s) {
  * Leaderboard order for two clues. Lower is better overall:
  *   1. fewer characters (the score itself)
  *   2. fewer spaces — a clue that needs no spacing is tighter
- *   3. rarer letters, by summed Swedish letter frequency
+ *   3. rarer letters, by summed letter frequency for the language being played
  *   4. alphabetical, purely so equal clues never swap places between requests
  * Returns <0 if a ranks above b.
+ *
+ * The frequency table and the collation both come from the locale. Swedish
+ * frequencies scoring English clues would rank the wrong ones higher, and
+ * `localeCompare` with the wrong tag sorts å and ä in the wrong place.
  */
-export function compareClues(a, b) {
+export function compareClues(a, b, { frequency, unlisted, collation }) {
   const byLength = clueLength(a) - clueLength(b);
   if (byLength) return byLength;
   const bySpaces = whitespaceCount(a) - whitespaceCount(b);
   if (bySpaces) return bySpaces;
-  const byRarity = letterRarity(a) - letterRarity(b); // lower frequency = rarer
+  // lower frequency = rarer
+  const byRarity = letterRarity(a, frequency, unlisted) - letterRarity(b, frequency, unlisted);
   if (byRarity) return byRarity;
-  return normalize(a).localeCompare(normalize(b), 'sv');
+  return normalize(a).localeCompare(normalize(b), collation);
 }
 
 /** Count of unicode characters. */
@@ -154,102 +144,24 @@ const FRAGMENT_RE = /(\.{2,}|…|^-|-$|^\s*-|-\s*$)/;
  * shown to the player). Rejections here cost no attempt, like referee rejections.
  */
 /**
- * Plausible inflected forms of a Swedish word.
+ * The language-independent half of the base-form test. Each locale supplies its
+ * own suffixes and its own inflectionsOf; the reasoning is the same everywhere.
  *
- * The rules always said inflections were out, but the code only did a
- * substring check, which silently missed every form where the stem changes:
- * "stövlar" is not a substring of "stövel", so "Puss i stövlar" sailed through
- * and solved the word. A substring test cannot express Swedish morphology.
+ * A dictionary lists word FORMS, not lemmas, so "is this a word" cannot answer
+ * "is this a base form" — that is how "gravs", a genitive, reached the screen
+ * as a guess. Stripping a known ending and finding a word underneath is not
+ * enough on its own either: it rejects "glass", "buss" and "dans", all base
+ * forms that happen to end in -s. The second test is what makes it safe — a
+ * lemma inflects and an inflected form does not. "glass" has "glassen" and
+ * "glassar" in the dictionary; "gravs" has no "gravsen".
  *
- * This generates rather than recognises, because the target is known and the
- * clue is not. It covers the regular patterns — added endings, the dropped
- * vowel in -el/-er/-en words (nyckel → nycklar), -a and -e stems (blomma →
- * blommor, vante → vantar).
- *
- * It does NOT cover umlaut plurals (morot → morötter, hand → händer), which
- * are irregular and would need a real morphology table. Those stay the word
- * author's job: put the awkward form on the word's forbidden list.
+ * Deliberately biased toward letting things through: a wrong rejection costs a
+ * player their round, a miss costs one odd-looking guess.
  */
-export function inflectionsOf(word) {
-  const w = normalize(word);
-  const out = new Set();
-  if (!w) return out;
-
-  const add = (...forms) => { for (const f of forms) if (f.length >= 3 && f !== w) out.add(f); };
-
-  // Endings that attach straight onto the whole word.
-  for (const s of ['en', 'n', 'et', 't', 'er', 'ar', 'or', 'r', 'na', 'arna', 'erna', 'orna',
-    'ens', 'ns', 'ets', 'ts', 'ers', 'ars', 'ors', 's', 'de', 'te', 'tt', 'ade', 'at', 'a']) {
-    add(w + s);
-  }
-
-  // -el/-en/-er drop the vowel before a vowel-initial ending: stövel → stövlar,
-  // nyckel → nycklar, fönster → fönstret.
-  const dropped = /^(.+)e([lnr])$/.exec(w);
-  if (dropped) {
-    const stem = dropped[1] + dropped[2];
-    add(...['ar', 'arna', 'ars', 'arnas', 'en', 'ens', 'et', 'ets', 'na'].map((s) => stem + s));
-  }
-
-  // -a stems: blomma → blommor, klocka → klockor.
-  if (w.endsWith('a')) {
-    const stem = w.slice(0, -1);
-    add(...['or', 'orna', 'ors', 'ornas', 'an', 'ans', 'ade', 'at', 'ar'].map((s) => stem + s));
-  }
-
-  // -e stems: vante → vantar, pojke → pojkar.
-  if (w.endsWith('e')) {
-    const stem = w.slice(0, -1);
-    add(...['ar', 'arna', 'ars', 'arnas', 'en', 'ens'].map((s) => stem + s));
-  }
-
-  // Verbs are listed in the infinitive, which ends in -a for all but a handful.
-  // springa → springer, sprang, sprungit are irregular and out of reach, but
-  // the regular conjugation is not: viska → viskar, viskade, viskat.
-  if (w.endsWith('a')) {
-    const stem = w.slice(0, -1);
-    add(...['ar', 'ade', 'at', 'as', 'ades', 'ats', 'andes'].map((s) => stem + s));
-    add(stem + 'ande'); // present participle: viskande
-  }
-
-  // Adjectives inflect for gender, number and degree: grön → grönt, gröna,
-  // grönare, grönast. The comparative is the one that matters most, since it
-  // is the form a player would reach for.
-  add(...['t', 'a', 'are', 'ast', 'aste', 'ares'].map((s) => w + s));
-  if (w.endsWith('ig')) add(...['t', 'a', 'are', 'ast', 'aste'].map((s) => w + s));
-
-  return out;
-}
-
-// -a and -e are here for adjective and weak-noun forms ("kloka" from "klok").
-// They look risky next to a bank full of nouns ending in -a, but the two tests
-// below carry it: "kyrka" only strips to "kyrk" if that is a word, and it is
-// not. Measured, they add no false positives at all.
-const INFLECTION_SUFFIXES = ['s', 'n', 't', 'a', 'e', 'en', 'et', 'er', 'ar', 'or', 'na', 'ns',
-  'ts', 'ets', 'ens', 'arna', 'erna', 'orna', 'ade', 'at'];
-
-/**
- * Is this an inflected form rather than the base form the guesser was asked
- * for? The dictionary arrives as a predicate so this file stays import-free
- * and the browser can keep using it.
- *
- * The dictionary lists word FORMS, so it answers "is this Swedish", not "is
- * this a lemma" — which is how "gravs" came back as a guess for a five-letter
- * word. It is a real genitive, so isSwedishWord said yes.
- *
- * Stripping a known ending and finding a word underneath is not enough on its
- * own: measured against the bank it rejects `glass`, `buss` and `dans`, all
- * base forms that happen to end in -s. The second test is what makes it safe —
- * a lemma inflects, an inflected form does not. "glass" has "glassen" and
- * "glassar" in the dictionary; "gravs" has no "gravsen". Measured over every
- * inflection the bank can produce, this rejects about half of them and, across
- * 475 known lemmas, none. Deliberately biased that way: a wrong rejection
- * costs the player a round, a miss costs an odd-looking guess.
- */
-export function looksInflected(word, isWord) {
+export function looksInflectedWith(word, isWord, suffixes, inflectionsOf) {
   const w = normalize(word);
   if (!w) return false;
-  const strips = INFLECTION_SUFFIXES.some((suffix) => {
+  const strips = suffixes.some((suffix) => {
     if (!w.endsWith(suffix)) return false;
     const base = w.slice(0, -suffix.length);
     // `isWord` can also answer null for "dictionary unavailable", and only a
@@ -264,32 +176,7 @@ export function looksInflected(word, isWord) {
   return true;
 }
 
-/**
- * The forms a word takes as the FIRST half of a compound. Exported for tests.
- *
- * inflectionsOf only ever adds endings, so it cannot see "kyrkklocka": Swedish
- * drops a final -a or -e before the second element, and the result is neither
- * the word nor any inflection of it. When the target is the SECOND half
- * ("domkyrka") the whole word is present and the plain substring test already
- * catches it — this covers the other position.
- *
- * The linking forms (kyrko-, gatu-) all begin with the same stem, so matching
- * the stem as a prefix covers them without listing them.
- */
-export function compoundStemsOf(word) {
-  const w = normalize(word);
-  const out = new Set();
-  for (const pattern of [/^(.+)a$/, /^(.+)e$/]) {
-    const hit = pattern.exec(w);
-    // Three letters is too little to anchor on. "vara" would yield "var", and
-    // then "varm" reads as a clue containing the secret word. Four is where
-    // stems stop swallowing ordinary vocabulary by accident.
-    if (hit && hit[1].length >= 4) out.add(hit[1]);
-  }
-  return out;
-}
-
-export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH) {
+export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENGTH, morphology) {
   const raw = String(clue ?? '');
   const n = normalize(raw);
 
@@ -318,7 +205,7 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
   // substring of "stövel". Short forms are matched as whole words only —
   // a three-letter form as a substring would catch far too much.
   const words = new Set(n.split(/[^\p{L}]+/u).filter(Boolean));
-  for (const form of inflectionsOf(target)) {
+  for (const form of morphology.inflectionsOf(target)) {
     if (form.length >= 5 ? n.includes(form) : words.has(form)) {
       return { code: 'contains_inflection', reason: 'Ledtråden innehåller en böjning av det hemliga ordet.' };
     }
@@ -326,7 +213,7 @@ export function checkClueCode(clue, target, forbidden, maxLength = MAX_CLUE_LENG
   // Compounds built ON the target: "kyrkklocka", "kyrkogård". Matched as a word
   // prefix, because that is where a Swedish compound puts its first element,
   // and a free substring test on a four-letter stem would catch far too much.
-  for (const stem of compoundStemsOf(target)) {
+  for (const stem of morphology.compoundStemsOf(target)) {
     for (const w of words) {
       if (w.startsWith(stem)) {
         return {
@@ -389,10 +276,16 @@ export function sanitizeName(name) {
   return s;
 }
 
-/** Local date string (YYYY-MM-DD) in Swedish time — the game day boundary. */
-export function todayInStockholm(now = new Date()) {
+/**
+ * Local date string (YYYY-MM-DD) in the game's own time zone — the day
+ * boundary. Always formatted with 'sv-SE' regardless of the language being
+ * played: that is not a language choice, it is the one locale tag that yields
+ * ISO-shaped output, and the string is a storage key rather than something a
+ * player reads.
+ */
+export function todayInZone(timeZone, now = new Date()) {
   return new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Europe/Stockholm',
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

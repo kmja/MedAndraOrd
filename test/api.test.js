@@ -88,12 +88,13 @@ test('api/clue rejects an empty telegram without calling the model', async () =>
 });
 
 test('api/clue refuses practice on today\'s word — the daily limit loophole', async () => {
-  const [{ default: clueHandler }, { wordForDate }, { todayInStockholm }] = await Promise.all([
+  const [{ default: clueHandler }, { wordForDate }, { todayInZone }, { LOCALE }] = await Promise.all([
     import('../api/clue.js'),
     import('../server/words.js'),
     import('../server/util.js'),
+    import('../server/locale.js'),
   ]);
-  const todayIndex = wordForDate(todayInStockholm()).index;
+  const todayIndex = wordForDate(todayInZone(LOCALE.timeZone)).index;
   const res = mockRes();
   await clueHandler(
     mockReq({ method: 'POST', body: { clue: 'test', practice: true, wordIndex: todayIndex } }),
@@ -208,4 +209,34 @@ test('a name never travels with the player id that owns it', async () => {
   const after = mockRes();
   await stateHandler(mockReq({ headers: { cookie } }), after);
   assert.ok(!JSON.stringify(after.body.leaderboard).includes(pid), 'player id leaked into the board');
+});
+
+test('the client imports the rule engine but never the word bank', async () => {
+  // The player sees today's word, so the bundle carrying it is not the problem
+  // — the problem would be the bundle carrying ALL of them, which is a list of
+  // every future answer. The client legitimately imports checkClueCode and a
+  // morphology module so it can refuse an obviously illegal clue without a
+  // round trip; it must never reach the bank or the rotation that orders it.
+  //
+  // Checked at the import graph rather than by grepping the built bundle:
+  // "kulle" is inside "skulle" and "knapp" is inside "Ordknapp", so substring
+  // matching on a bundle reports leaks that are not there.
+  const { readdir } = await import('node:fs/promises');
+  const dir = new URL('../web/src/', import.meta.url);
+  const files = (await readdir(dir)).filter((f) => /\.(jsx?|mjs)$/.test(f));
+  assert.ok(files.length >= 2, 'expected client sources to scan');
+
+  const FORBIDDEN = ['words.js', 'rotation.js', 'dictionary.js'];
+  for (const file of files) {
+    const src = await readFile(new URL(file, dir), 'utf8');
+    const imports = [...src.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]);
+    for (const spec of imports.filter((i) => i.includes('server/'))) {
+      for (const banned of FORBIDDEN) {
+        assert.ok(
+          !spec.endsWith(banned),
+          `web/src/${file} imports ${spec} — that ships every future answer to the browser`,
+        );
+      }
+    }
+  }
 });

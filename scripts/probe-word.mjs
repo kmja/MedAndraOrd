@@ -48,6 +48,7 @@ import * as serverAi from '../server/ai.js';
 import { classifyApiError, retryDelayMs } from '../server/ai.js';
 import { isSwedishWord } from '../server/dictionary.js';
 import { checkClueCode, extractWord } from '../server/util.js';
+import { LOCALE } from '../server/locale.js';
 import { loadEnv, ensureEnv } from './env.mjs';
 import { clueLength, letterCount, normalize, suggestedLimit, clueLimitFor, CLUE_LIMIT_CEILING } from '../server/util.js';
 
@@ -391,7 +392,7 @@ Spärrade ord: ${forbidden.join(', ') || '(inga)'}`;
 
 /** The deterministic half, unchanged: free, and identical in both modes. */
 function codeVerdict(item) {
-  const v = checkClueCode(item.clue, item.entry.word, item.entry.forbidden, CLUE_LIMIT_CEILING);
+  const v = checkClueCode(item.clue, item.entry.word, item.entry.forbidden, CLUE_LIMIT_CEILING, LOCALE.morphology);
   return v ? { type: 'rejected', reason: v.reason, source: 'code' } : null;
 }
 

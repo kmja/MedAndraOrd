@@ -1,4 +1,5 @@
-import { checkClueCode, normalize, clueLength, letterCount, extractWord, looksInflected } from './util.js';
+import { checkClueCode, normalize, clueLength, letterCount, extractWord } from './util.js';
+import { LOCALE } from './locale.js';
 import * as defaultAi from './ai.js';
 import { isSwedishWord } from './dictionary.js';
 
@@ -167,7 +168,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
       // above and went on screen as the AI's answer. Same treatment as a
       // wrong-length guess: the clue was legal, so re-prompt rather than let a
       // half-word stand as the round's result.
-      if (looksInflected(guess, isSwedishWord)) {
+      if (LOCALE.morphology.looksInflected(guess, isSwedishWord)) {
         step(round, 'not_base_form', { tookMs, guess });
         feedback.push({ guess, problem: 'not_base' });
         continue;
@@ -208,7 +209,7 @@ export async function runGuesserLoop({ clue, target, targetLetterCount, wordClas
 export async function judgeClue({ clue, target, forbidden, maxLength, wordClass, ai = defaultAi }) {
   // 1. Deterministic checks — free, before any API call. The length limit is
   // per word (see clueLimitFor), so it has to travel with the call.
-  const codeVerdict = checkClueCode(clue, target, forbidden, maxLength);
+  const codeVerdict = checkClueCode(clue, target, forbidden, maxLength, LOCALE.morphology);
   if (codeVerdict) {
     return { type: 'rejected', reason: codeVerdict.reason, source: 'code' };
   }

@@ -7,7 +7,8 @@ import {
   AiUnavailableError, MAX_ATTEMPTS,
 } from './game.js';
 import { RULEBOOK_ID } from './ai.js';
-import { normalize, todayInStockholm, clueLimitFor, sanitizeName, MAX_NAME_LENGTH } from './util.js';
+import { normalize, todayInZone, clueLimitFor, sanitizeName, MAX_NAME_LENGTH } from './util.js';
+import { LOCALE } from './locale.js';
 
 // Framework-agnostic handlers: they take Node-style (req, res), which is what
 // both Express and Vercel functions provide. Keeping them here means there is
@@ -29,6 +30,11 @@ const COOKIE = 'ordknapp_pid';
  * the new word simply starts with a clean board.
  */
 const puzzleKey = (date, index) => `${date}:${index}`;
+
+// The game day, in the locale's own time zone. A daily puzzle needs a boundary
+// and it should be the one the players live in, so it travels with the language
+// rather than being fixed to Stockholm.
+const gameDate = () => todayInZone(LOCALE.timeZone);
 
 // Infinity does not survive JSON — it serialises to null. That is convenient
 // rather than lossy: null reads as "no limit" on the client, where 0 would
@@ -114,7 +120,7 @@ function parseBody(req) {
 export async function stateHandler(req, res) {
   const store = getStore();
   const pid = getPlayerId(req, res);
-  const date = todayInStockholm();
+  const date = gameDate();
   const today = wordForDate(date);
   const { word, forbidden, letterCount } = today;
 
@@ -181,7 +187,7 @@ export async function nameHandler(req, res) {
 
 export async function randomHandler(req, res) {
   if (!PRACTICE_ENABLED) return send(res, 404, { error: 'Övningsläget är avstängt.' });
-  const { index: todayIndex } = wordForDate(todayInStockholm());
+  const { index: todayIndex } = wordForDate(gameDate());
   const entry = randomWord(todayIndex);
   send(res, 200, {
     wordIndex: entry.index,
@@ -205,7 +211,7 @@ export async function clueHandler(req, res) {
   if (!clue) return send(res, 400, { error: 'Ingen ledtråd angiven.' });
   if (clue.length > 200) return send(res, 400, { error: 'Ledtråden är för lång.' });
 
-  const date = todayInStockholm();
+  const date = gameDate();
   const today = wordForDate(date);
 
   // ---- Practice mode: judged identically, recorded nowhere. ----

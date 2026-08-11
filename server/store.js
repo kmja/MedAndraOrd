@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { normalize, compareClues, clueLength } from './util.js';
+import { COLLATION } from './locale.js';
 
 // Storage has three backends behind one interface, chosen by environment:
 //
@@ -40,7 +41,7 @@ function groupAndRank(entries, { reveal, viewerPid }) {
   }
 
   const rows = [...groups.values()].sort((a, b) => {
-    if (a.clue && b.clue) return compareClues(a.clue, b.clue);
+    if (a.clue && b.clue) return compareClues(a.clue, b.clue, COLLATION);
     return a.score - b.score; // fall back when a clue is missing
   });
 
@@ -51,7 +52,7 @@ function groupAndRank(entries, { reveal, viewerPid }) {
     // the score, matching standing()'s fallback so the two never disagree.
     const same = Boolean(prev) && (
       row.clue && prev.clue
-        ? compareClues(row.clue, prev.clue) === 0
+        ? compareClues(row.clue, prev.clue, COLLATION) === 0
         : row.score === prev.score
     );
     if (!same) { rank = i + 1; prev = row; }
@@ -195,7 +196,7 @@ class MemoryStore {
     let better = 0;
     for (const best of day.values()) {
       const ahead = mine.clue && best.clue
-        ? compareClues(best.clue, mine.clue) < 0
+        ? compareClues(best.clue, mine.clue, COLLATION) < 0
         : best.score < mine.score;
       if (ahead) better++;
     }
@@ -414,7 +415,7 @@ class KvStore {
     let better = 0;
     entries.forEach((e, i) => {
       const theirs = clues?.[i];
-      const ahead = theirs ? compareClues(theirs, myClue) < 0 : e.score < mine;
+      const ahead = theirs ? compareClues(theirs, myClue, COLLATION) < 0 : e.score < mine;
       if (ahead) better++;
     });
     return { rank: better + 1, total: entries.length };
