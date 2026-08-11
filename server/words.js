@@ -1,5 +1,22 @@
 import { dayNumber, letterCount } from './util.js';
 import { ROTATION, ROTATION_EPOCH } from './rotation.js';
+import { LOCALE } from './locale.js';
+
+// This bank is Swedish, and so is the rotation that orders it. Every other
+// language-bound piece has moved under locales/, but the bank has not yet —
+// authoring one is the slow part, not the plumbing.
+//
+// Until it does, refuse to start rather than serve Swedish words to a player
+// reading English rules. That failure would look like a broken game; this looks
+// like the missing step it is.
+if (LOCALE.code !== 'sv') {
+  throw new Error(
+    `No word bank for locale "${LOCALE.code}". The bank and its rotation are still `
+    + 'Swedish-only — see server/locales/ for the pieces that have moved. '
+    + 'Set ORDKNAPP_LOCALE=sv, or author server/locales/'
+    + `${LOCALE.code}/words.js and its rotation first.`,
+  );
+}
 
 // Hand-authored word bank. Writing the forbidden lists is the Taboo craft —
 // each list blocks the five most obvious clue routes for its word.

@@ -1,7 +1,9 @@
 import { morphology as svMorphology } from './locales/sv/morphology.js';
 import { LETTER_FREQUENCY as svFrequency, UNLISTED_FREQUENCY as svUnlisted } from './locales/sv/frequency.js';
+import { prompt as svPrompt } from './locales/sv/prompt.js';
 import { morphology as enMorphology } from './locales/en/morphology.js';
 import { LETTER_FREQUENCY as enFrequency, UNLISTED_FREQUENCY as enUnlisted } from './locales/en/frequency.js';
+import { prompt as enPrompt } from './locales/en/prompt.js';
 
 /**
  * Which language is being played, resolved once at startup.
@@ -31,6 +33,7 @@ const LOCALES = {
     morphology: svMorphology,
     frequency: svFrequency,
     unlistedFrequency: svUnlisted,
+    prompt: svPrompt,
   },
   en: {
     code: 'en',
@@ -43,6 +46,7 @@ const LOCALES = {
     morphology: enMorphology,
     frequency: enFrequency,
     unlistedFrequency: enUnlisted,
+    prompt: enPrompt,
   },
 };
 

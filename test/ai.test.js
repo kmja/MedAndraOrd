@@ -312,7 +312,7 @@ test('retryDelayMs honours the wait the API asked for', () => {
   assert.equal(retryDelayMs({ message: '"retryDelay":"99999s"' }), 60_000);
 });
 
-test('the rulebook fingerprint changes when the rulebook does', async () => {
+test('the rulebook fingerprint covers every piece of the rulebook', async () => {
   // The verdict cache is keyed by this. If it did not move with the rules, a
   // ruling made under the old wording would outlive the fix that changed it —
   // which is exactly how "blött plask" stayed refused after being made legal.
@@ -320,23 +320,36 @@ test('the rulebook fingerprint changes when the rulebook does', async () => {
   assert.match(RULEBOOK_ID, /^[0-9a-f]{8}$/);
 
   const { readFileSync } = await import('node:fs');
-  const source = readFileSync(new URL('../server/ai.js', import.meta.url), 'utf8');
-  // Derived from the rule text, not typed in by hand — a literal would drift
-  // the moment someone edited a rule without remembering to bump it.
-  assert.match(source, /RULEBOOK_ID = createHash/);
+  const { readdirSync } = await import('node:fs');
+  const localesDir = new URL('../server/locales/', import.meta.url);
+  const codes = readdirSync(localesDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+  assert.ok(codes.length >= 1, 'expected at least one locale');
 
-  // And it must cover ALL of it. Naming the pieces in the hash by hand has the
-  // same failure mode as a version number: add a section to the prompt, forget
-  // to add it here, and rulings survive an edit they should not have. So check
-  // the real property — every shared block the prompts interpolate is hashed.
-  const hashed = source.match(/\.update\(\[([^\]]+)\]/)[1];
-  const interpolated = new Set([...source.matchAll(/\$\{([A-Z][A-Z_]+)\}/g)].map((m) => m[1]));
-  assert.ok(interpolated.size >= 3, 'expected the prompts to be built from shared blocks');
-  for (const block of interpolated) {
-    assert.ok(
-      hashed.includes(block),
-      `${block} goes into a prompt but not into RULEBOOK_ID — edits to it would not expire cached rulings`,
-    );
+  for (const code of codes) {
+    const file = new URL(`../server/locales/${code}/prompt.js`, import.meta.url);
+    let source;
+    try {
+      source = readFileSync(file, 'utf8');
+    } catch {
+      continue; // a locale mid-construction has no prompt yet
+    }
+    // Naming the hashed pieces by hand has the same failure mode as a version
+    // number: add a section to the prompt, forget to add it here, and rulings
+    // survive an edit they should not have. So check the real property —
+    // every shared block the prompts interpolate is in RULEBOOK_TEXT.
+    const hashed = source.match(/RULEBOOK_TEXT = \[([^\]]+)\]/);
+    assert.ok(hashed, `${code}/prompt.js must export RULEBOOK_TEXT built from its pieces`);
+    const interpolated = new Set([...source.matchAll(/\$\{([A-Z][A-Z_]+)\}/g)].map((m) => m[1]));
+    assert.ok(interpolated.size >= 3, `${code}: expected prompts built from shared blocks`);
+    for (const block of interpolated) {
+      assert.ok(
+        hashed[1].includes(block),
+        `${code}: ${block} goes into a prompt but not into RULEBOOK_TEXT — `
+          + 'edits to it would not expire cached rulings',
+      );
+    }
   }
 });
 
