@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { normalize, compareClues, clueLength } from './util.js';
-import { COLLATION } from './locale.js';
+import { COLLATION, LOCALE } from './locale.js';
 
 // Storage has three backends behind one interface, chosen by environment:
 //
@@ -15,6 +15,9 @@ import { COLLATION } from './locale.js';
 // All methods are async so callers don't care which backend they got.
 
 const LEADERBOARD_LIMIT = 20;
+
+// The names hash, one per language — see setName.
+const NAMES_KEY = `names:${LOCALE.code}`;
 
 /**
  * The board is a list of clues, not of people: everyone who submitted the same
@@ -366,18 +369,22 @@ class KvStore {
   // outlives the board it was set on. No expiry for the same reason — the
   // entries are tiny, and expiring them would silently anonymise a returning
   // player who did nothing wrong.
+  //
+  // Per language, though the player ids could not collide anyway: the cookie is
+  // per-domain, so the same person is two different players on the two sites.
+  // Splitting the hash is what makes "delete one edition's data" a single key.
   async setName(pid, name) {
-    if (name == null) await this._cmd('HDEL', 'names', pid);
-    else await this._cmd('HSET', 'names', pid, name);
+    if (name == null) await this._cmd('HDEL', NAMES_KEY, pid);
+    else await this._cmd('HSET', NAMES_KEY, pid, name);
   }
 
   async getName(pid) {
-    return (await this._cmd('HGET', 'names', pid)) ?? null;
+    return (await this._cmd('HGET', NAMES_KEY, pid)) ?? null;
   }
 
   /** One HMGET for the whole board rather than one lookup per row. */
   async namesFor(pids) {
-    const values = await this._cmd('HMGET', 'names', ...pids);
+    const values = await this._cmd('HMGET', NAMES_KEY, ...pids);
     const out = new Map();
     pids.forEach((p, i) => { if (values?.[i]) out.set(p, values[i]); });
     return out;

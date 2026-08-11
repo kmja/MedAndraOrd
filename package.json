@@ -20,6 +20,7 @@
     "probe": "node scripts/probe-word.mjs",
     "limits": "node scripts/apply-limits.mjs",
     "rotation": "node scripts/rotation.mjs",
+    "migrate:locale": "node scripts/migrate-locale-prefix.mjs",
     "migrate:puzzle": "node scripts/migrate-puzzle-keys.mjs"
   },
   "dependencies": {

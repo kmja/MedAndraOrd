@@ -28,8 +28,12 @@ const COOKIE = 'ordknapp_pid';
  *
  * Scoping by (date, word) makes a bank change do the harmless thing instead:
  * the new word simply starts with a clean board.
+ *
+ * The language is in the key for the same reason one step out. The editions
+ * are separate sites but may share one KV database, and both would otherwise
+ * write to "2026-08-11:0" — two different words, one leaderboard.
  */
-const puzzleKey = (date, index) => `${date}:${index}`;
+const puzzleKey = (date, index) => `${LOCALE.code}:${date}:${index}`;
 
 // The game day, in the locale's own time zone. A daily puzzle needs a boundary
 // and it should be the one the players live in, so it travels with the language

@@ -207,3 +207,21 @@ test('en: every bank entry is labelled with a word class WordNet agrees with', a
   }
   assert.deepEqual(wrong, [], `WordNet disagrees with these labels: ${wrong.join('; ')}`);
 });
+
+test('the two editions cannot share a leaderboard', async () => {
+  // Same repo, same KV database, different sites. Before the language went into
+  // the key, both wrote to "2026-08-11:0" — two different words, one board and
+  // one clue cache. This reads the key builder out of the handlers rather than
+  // duplicating it, so a change there fails here.
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../server/handlers.js', import.meta.url), 'utf8');
+  const builder = src.match(/const puzzleKey = \(date, index\) => `([^`]+)`/);
+  assert.ok(builder, 'puzzleKey must stay a single template literal');
+  assert.ok(
+    builder[1].includes('${LOCALE.code}'),
+    `the puzzle key must name the language, got: ${builder[1]}`,
+  );
+  // And the same for names, which are keyed by player rather than by puzzle.
+  const store = readFileSync(new URL('../server/store.js', import.meta.url), 'utf8');
+  assert.match(store, /const NAMES_KEY = `names:\$\{LOCALE\.code\}`/);
+});
