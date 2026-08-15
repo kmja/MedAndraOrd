@@ -32,6 +32,10 @@ const CLUE_RULES = `STEG 1 — bedöm ledtråden. Den är OTILLÅTEN om den:
 
 7. Namnger något som svaret bara FÖRKNIPPAS med — dess material, dess sammanhang, vad som brukar finnas i närheten, eller vad det står som symbol för — utan att säga vad svaret är, gör eller används till ("porslin" för en tekopp, "halm" för en ladugård). Association är inte beskrivning: den pekar åt rätt håll och överlåter resten av arbetet åt bokstavsantalet. Prövas mot din egen gissning — se STEG 2.
 
+8. Är bara ett varumärke eller en tillverkare som får stå för produkten ("zippo" för en cigarettändare, "electrolux" för en dammsugare). Att veta vem som tillverkar en sak är en uppslagning, inte den sortens kunskap spelet frågar efter — och eftersom varumärken är korta och entydiga skulle "namnge marknadsledaren" annars bli den kortaste ledtråden för varje tillverkad sak.
+
+Skillnaden mot regeln om egennamn längre ned är riktningen: Nilen ÄR en flod, men en dammsugare är ingen tillverkare — den är TILLVERKAD AV en. Ett varumärke som blivit ett vanligt ord (jeep, dynamit) är däremot ett ord, och räknas inte som varumärke här.
+
 Se noga upp med skillnaden mot exempel-regeln nedan: ett EXEMPEL PÅ svaret är tillåtet, en SYSKONSAK till svaret är det inte. "nilen" för flod är tillåtet, för Nilen ÄR en flod. "kajak" för kanot är det inte, för en kajak är ingen kanot — den är något annat av samma sort.
 
 JÄMFÖR NOGA — skillnaden är strukturen, aldrig antalet ord:
@@ -55,7 +59,7 @@ Lika viktigt: **egennamn och kända exempel på kategorin är TILLÅTNA** — "n
 
 Detsamma gäller **förkortade** exempel: "sept" och "okt" är samma drag som "nilen", och ska bedömas lika. Förkortningar är inte förbjudna. Det går ändå inte att veta om "jan" är tänkt som en förkortning eller som ett namn, och en regel som inte går att tillämpa konsekvent gör mer skada än nytta — samma ledtråd måste få samma dom varje gång.
 
-Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska, hänger ihop språkligt och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–7.`;
+Var generös i övrigt. Påhittade svenska sammansättningar, ovanliga bilder, humor och långsökta omskrivningar är TILLÅTNA så länge de är på svenska, hänger ihop språkligt och pekar på betydelse. En ledtråd som känns udda, lekfull eller väl fyndig bryter inte mot reglerna för det — avvisa bara det som klart bryter mot 1–8.`;
 
 /**
  * The bank is mostly nouns, so a model with no class given will reach for one.

@@ -142,3 +142,36 @@ test('retryNote states the rulings rather than staging a dialogue', () => {
   assert.match(note, /has 6 letters, not 5/);
   assert.match(note, /NOT on the list/);
 });
+
+test('rule 8 refuses a brand standing in for the product', () => {
+  // "Deere" solved traktor. A tractor is not a Deere — it is MADE BY one, which
+  // is the same shape as rule 7's "made of". And brands are engineered to be
+  // short and to name a category unambiguously, so under golf scoring "name the
+  // market leader" would be the shortest clue for every manufactured object in
+  // the bank. A forbidden list cannot chase that; it is unbounded per word.
+  for (const prompt of PROMPTS()) {
+    assert.match(prompt, /8\. Is only a brand or a manufacturer standing in for the product/);
+    assert.match(prompt, /is no manufacturer — it is MADE BY one/);
+  }
+});
+
+test('rule 8 does not catch trademarks that became ordinary words', () => {
+  // "thermos" and "zipper" are words now, not brands. A blanket ban on names
+  // that were once trademarks would refuse ordinary vocabulary — and the
+  // proper-name rule it sits beside has to survive intact.
+  for (const prompt of PROMPTS()) {
+    assert.match(prompt, /trademark that has become an ordinary word/);
+    assert.match(prompt, /proper names and well-known examples of the category are ALLOWED/);
+    assert.match(prompt, /"nile" for river is allowed/);
+  }
+});
+
+test('rule 8 is judged in step 1, where it belongs', () => {
+  // Unlike rules 5, 6 and 7, "is this clue merely a brand name" is a property of
+  // the clue alone — no answer needed. So it must NOT defer to step 2, or it
+  // would be checked in the one place that cannot see it any better.
+  for (const prompt of PROMPTS()) {
+    const deferred = [...prompt.matchAll(/^(\d+)\. [^\n]*see STEP 2/gm)].map((m) => Number(m[1]));
+    assert.deepEqual(deferred, [5, 6, 7], `rule 8 must not defer, got ${deferred}`);
+  }
+});

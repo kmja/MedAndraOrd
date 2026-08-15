@@ -38,6 +38,10 @@ const CLUE_RULES = `STEP 1 — judge the clue. It is NOT ALLOWED if it:
 6. Points at something ELSE of the same kind as the answer — a sibling, not the answer ("kayak" for a canoe, "Tuesday" for a Wednesday, "apricot" for a plum). A sibling is not a description: it says only "something in this category", and the letter count does the rest of the work. Also tested against your own guess — see STEP 2.
 7. Names something the answer is merely ASSOCIATED with — its material, its setting, what tends to be nearby, or what it stands as a symbol for — without saying what the answer is, does or is used for ("porcelain" for a teacup, "straw" for a barn). Association is not description: it points the right way and leaves the rest of the work to the letter count. Tested against your own guess — see STEP 2.
 
+8. Is only a brand or a manufacturer standing in for the product ("hoover" for a vacuum cleaner, "biro" for a ballpoint pen). Knowing which company makes a thing is a lookup, not the kind of knowledge this game asks for — and because brands are short and unambiguous, "name the market leader" would otherwise be the shortest clue for every manufactured object.
+
+The difference from the proper-names rule further down is direction: the Nile IS a river, but a vacuum cleaner is no manufacturer — it is MADE BY one. A trademark that has become an ordinary word (thermos, zipper, escalator) is a word, and does not count as a brand here.
+
 Watch the difference from the examples rule below: an EXAMPLE OF the answer is allowed, a SIBLING of the answer is not. "nile" for river is allowed, because the Nile IS a river. "kayak" for canoe is not, because a kayak is no canoe — it is something else of the same sort.
 
 COMPARE CAREFULLY — for rule 4 the difference is structure, never the number of words:
@@ -61,7 +65,7 @@ Just as important: **proper names and well-known examples of the category are AL
 
 The same goes for **abbreviated** examples: "sept" and "oct" are the same move as "nile", and are to be judged the same way. Abbreviations are not forbidden. There is no way to tell whether "jan" is meant as an abbreviation or as a name, and a rule that cannot be applied consistently does more harm than good — the same clue must get the same ruling every time.
 
-Be generous otherwise. Invented English compounds, unusual images, humour and far-fetched paraphrase are ALLOWED as long as they are English, hang together as language, and point at meaning. A clue that feels odd, playful or a little too clever does not break the rules by being so — refuse only what clearly breaks 1–7.`;
+Be generous otherwise. Invented English compounds, unusual images, humour and far-fetched paraphrase are ALLOWED as long as they are English, hang together as language, and point at meaning. A clue that feels odd, playful or a little too clever does not break the rules by being so — refuse only what clearly breaks 1–8.`;
 
 /**
  * The bank is mostly nouns, so a model with no class given will reach for one.
